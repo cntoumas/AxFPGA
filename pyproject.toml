@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "axfpga"
+version = "0.2.0"
+description = "Native FPGA Attribute-Driven Approximate Logic Synthesis & Verification Framework"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    {name = "cntoumas", email = "cntoumas@physics.auth.gr"},
+]
+keywords = [
+    "approximate-computing",
+    "fpga",
+    "artix-7",
+    "xilinx",
+    "yosys",
+    "pyals",
+    "logic-synthesis",
+    "verification",
+]
+dependencies = [
+    "pyosys>=0.70",
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "pyalslib>=1.3.1",
+    "pyamosa>=2.0.7",
+    "igraph>=1.0.0",
+    "z3-solver>=5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "matplotlib>=3.8.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["axfpga*"]
+
+[project.scripts]
+axfpga = "axfpga.flow:main"
+axfpga-sweep = "axfpga.sweep:main"
+axfpga-budget = "axfpga.budgeter:main"
+axfpga-cone = "axfpga.cone_extractor:main"
+axfpga-sdc = "axfpga.sdc_generator:main"
