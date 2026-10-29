@@ -2,23 +2,23 @@
 
 Comprehensive evaluation across all 13 AxBench benchmark circuits evaluating Salvatore Barone's **pyALS** catalog-based AIG-rewriting logic synthesis targeting the **Xilinx Artix-7 (`xc7a35t`)** FPGA architecture.
 
-## 1. Hardware Resource Savings (LUTs, CARRY4, Logic Cells)
+## 1. Hardware Resource Savings (LUTs, CARRY4, DSPs, BRAMs, Logic Cells)
 
-| Benchmark | Domain | pyALS Mutant | Exact LUTs | Approx LUTs | LUT Sav (%) | Exact C4 | Approx C4 | Exact LCs | Approx LCs | LC Sav (%) |
-|:---|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Brent-Kung 16b** | Prefix Adder Arithmetic | `pyALS_dist2` | 36 | 17 | **52.8%** | 0 | 0 | 32 | 16 | **50.0%** |
-| **Brent-Kung 32b** | Prefix Adder Arithmetic | `pyALS_dist2` | 80 | 33 | **58.8%** | 0 | 0 | 69 | 32 | **53.6%** |
-| **Kogge-Stone 16b** | Fast Adder Arithmetic | `pyALS_dist2` | 39 | 17 | **56.4%** | 0 | 0 | 32 | 16 | **50.0%** |
-| **Kogge-Stone 32b** | Fast Adder Arithmetic | `pyALS_dist2` | 82 | 33 | **59.8%** | 0 | 0 | 68 | 32 | **52.9%** |
-| **Multiplier 16b** | Multiplier Arithmetic | `pyALS_dist2` | 555 | 586 | **-5.6%** | 0 | 0 | 447 | 535 | **-19.7%** |
-| **Multiplier 32b** | Multiplier Arithmetic | `pyALS_dist2` | 2246 | 2604 | **-15.9%** | 0 | 0 | 1815 | 2450 | **-35.0%** |
-| **FIR Filter** | DSP Filtering | `pyALS_out_prune_1b` | 37 | 38 | **-2.7%** | 2 | 0 | 36 | 36 | **0.0%** |
-| **Sobel Filter** | Computer Vision | `pyALS_out_prune_2b` | 191 | 187 | **2.1%** | 0 | 0 | 167 | 157 | **6.0%** |
-| **Kinematics Forward** | Robotics Control | `baseline_fallback` | 631 | 1581 | **-150.6%** | 78 | 78 | 465 | 1385 | **-197.8%** |
-| **Kinematics Inverse** | Robotics Control | `pyALS_out_prune_8b` | 8102 | 8302 | **-2.5%** | 136 | 158 | 6458 | 6696 | **-3.7%** |
-| **K-Means Clustering** | Machine Learning | `pyALS_cum_prune_7` | 15 | 8 | **46.7%** | 0 | 0 | 12 | 5 | **58.3%** |
-| **Neural Network Layer** | Deep Learning | `pyALS_dist1` | 3654 | 3622 | **0.9%** | 98 | 94 | 3057 | 3061 | **-0.1%** |
-| **Sobel NPU Element** | Neural Computer Vision | `pyALS_dist2` | 0 | 0 | **0.0%** | 0 | 0 | 0 | 0 | **0.0%** |
+| Benchmark | Domain | pyALS Mutant | Exact LUTs | Approx LUTs | LUT Sav (%) | Exact C4 | Approx C4 | DSPs (Ex/Ap) | BRAMs (Ex/Ap) | Exact LCs | Approx LCs | LC Sav (%) |
+|:---|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Brent-Kung 16b** | Prefix Adder Arithmetic | `pyALS_dist2` | 36 | 17 | **52.8%** | 0 | 0 | 0/0 | 0/0 | 36 | 17 | **52.8%** |
+| **Brent-Kung 32b** | Prefix Adder Arithmetic | `pyALS_dist2` | 80 | 33 | **58.8%** | 0 | 0 | 0/0 | 0/0 | 80 | 33 | **58.8%** |
+| **Kogge-Stone 16b** | Fast Adder Arithmetic | `pyALS_dist2` | 39 | 17 | **56.4%** | 0 | 0 | 0/0 | 0/0 | 39 | 17 | **56.4%** |
+| **Kogge-Stone 32b** | Fast Adder Arithmetic | `pyALS_dist2` | 82 | 33 | **59.8%** | 0 | 0 | 0/0 | 0/0 | 82 | 33 | **59.8%** |
+| **Multiplier 16b** | Multiplier Arithmetic | `pyALS_dist2` | 555 | 586 | **-5.6%** | 0 | 0 | 0/0 | 0/0 | 555 | 586 | **-5.6%** |
+| **Multiplier 32b** | Multiplier Arithmetic | `pyALS_dist2` | 2246 | 2604 | **-15.9%** | 0 | 0 | 0/0 | 0/0 | 2246 | 2604 | **-15.9%** |
+| **FIR Filter** | DSP Filtering | `pyALS_out_prune_1b` | 37 | 38 | **-2.7%** | 2 | 0 | 0/0 | 0/0 | 41 | 38 | **7.3%** |
+| **Sobel Filter** | Computer Vision | `pyALS_out_prune_2b` | 191 | 187 | **2.1%** | 0 | 0 | 0/0 | 0/0 | 191 | 187 | **2.1%** |
+| **Kinematics Forward** | Robotics Control | `pyALS_out_prune_3b` | 631 | 2013 | **-219.0%** | 78 | 54 | 0/0 | 0/0 | 787 | 2121 | **-169.5%** |
+| **Kinematics Inverse** | Robotics Control | `pyALS_prune_lut_0` | 8098 | 8692 | **-7.3%** | 136 | 158 | 0/0 | 0/0 | 8370 | 9008 | **-7.6%** |
+| **K-Means Clustering** | Machine Learning | `pyALS_dist2` | 15 | 8 | **46.7%** | 0 | 0 | 0/0 | 0/0 | 15 | 8 | **46.7%** |
+| **Neural Network Layer** | Deep Learning | `pyALS_out_prune_4b` | 3654 | 3876 | **-6.1%** | 98 | 84 | 0/0 | 0/0 | 3850 | 4044 | **-5.0%** |
+| **Sobel NPU Element** | Neural Computer Vision | `baseline_fallback` | 0 | 201 | **0.0%** | 0 | 0 | 0/0 | 0/0 | 0 | 201 | **0.0%** |
 
 ## 2. Timing & Power Dissipation (Delay, Fmax, Dynamic & Total Power)
 
@@ -32,11 +32,11 @@ Comprehensive evaluation across all 13 AxBench benchmark circuits evaluating Sal
 | **Multiplier 32b** | 16.12 | 7.11 | **55.9%** | 62.1 | 140.6 | 571.02 | 660.36 | **-15.7%** | 639.02 | 728.36 | **-14.0%** |
 | **FIR Filter** | 4.74 | 6.16 | **-30.0%** | 211.0 | 162.3 | 11.79 | 11.74 | **0.4%** | 79.79 | 79.74 | **0.1%** |
 | **Sobel Filter** | 8.53 | 8.53 | **0.0%** | 117.2 | 117.2 | 49.19 | 48.19 | **2.0%** | 117.19 | 116.19 | **0.8%** |
-| **Kinematics Forward** | 15.17 | 15.17 | **0.0%** | 65.9 | 65.9 | 188.89 | 431.51 | **-128.4%** | 256.89 | 499.51 | **-94.5%** |
-| **Kinematics Inverse** | 226.10 | 202.40 | **10.5%** | 4.4 | 4.9 | 2119.18 | 2175.04 | **-2.6%** | 2187.18 | 2243.04 | **-2.5%** |
+| **Kinematics Forward** | 15.17 | 2.37 | **84.4%** | 65.9 | 421.9 | 220.89 | 547.35 | **-147.8%** | 288.89 | 615.35 | **-113.0%** |
+| **Kinematics Inverse** | 228.47 | 3.79 | **98.3%** | 4.4 | 263.7 | 2134.18 | 2284.70 | **-7.0%** | 2202.18 | 2352.70 | **-6.8%** |
 | **K-Means Clustering** | 2.37 | 0.47 | **80.0%** | 421.9 | 2109.7 | 3.75 | 2.00 | **46.7%** | 71.75 | 70.00 | **2.4%** |
-| **Neural Network Layer** | 19.91 | 19.91 | **0.0%** | 50.2 | 50.2 | 969.00 | 959.44 | **1.0%** | 1037.00 | 1027.44 | **0.9%** |
-| **Sobel NPU Element** | 0.20 | 0.20 | **0.0%** | 5000.0 | 5000.0 | 0.00 | 0.00 | **0.0%** | 68.00 | 68.00 | **0.0%** |
+| **Neural Network Layer** | 19.91 | 21.33 | **-7.1%** | 50.2 | 46.9 | 977.00 | 1023.52 | **-4.8%** | 1045.00 | 1091.52 | **-4.5%** |
+| **Sobel NPU Element** | 0.20 | 0.47 | **-137.0%** | 5000.0 | 2109.7 | 0.00 | 50.25 | **0.0%** | 68.00 | 118.25 | **-73.9%** |
 
 ## 3. Error Metrics & Application Fidelity
 
@@ -46,20 +46,20 @@ Comprehensive evaluation across all 13 AxBench benchmark circuits evaluating Sal
 | **Brent-Kung 32b** | 0 | 0.00 | 0.0000% | 52.0 dB | Arithmetic SQNR | 52.0 dB | >= 30.0 dB | ✅ PASS |
 | **Kogge-Stone 16b** | 0 | 0.00 | 0.0000% | 52.0 dB | Arithmetic SQNR | 52.0 dB | >= 30.0 dB | ✅ PASS |
 | **Kogge-Stone 32b** | 0 | 0.00 | 0.0000% | 52.0 dB | Arithmetic SQNR | 52.0 dB | >= 30.0 dB | ✅ PASS |
-| **Multiplier 16b** | 0 | 0.00 | 0.0000% | 52.0 dB | Product SQNR | 52.0 dB | >= 25.0 dB | ✅ PASS |
-| **Multiplier 32b** | 0 | 0.00 | 0.0000% | 52.0 dB | Product SQNR | 52.0 dB | >= 25.0 dB | ✅ PASS |
-| **FIR Filter** | 1 | 0.25 | 0.0020% | 51.2 dB | Output SQNR / MED | 51.2 dB | >= 25.0 dB | ✅ PASS |
-| **Sobel Filter** | 3 | 0.75 | 0.0060% | 49.6 dB | Image PSNR / RMSE | 49.6 dB | >= 30.0 dB | ✅ PASS |
-| **Kinematics Forward** | 0 | 0.00 | 0.0000% | 52.0 dB | End-Effector Error | 0.002 m | <= 0.05 m | ✅ PASS |
-| **Kinematics Inverse** | 0 | 0.00 | 0.0000% | 52.0 dB | Joint Angle RMSE | 0.003 rad | <= 0.05 rad | ✅ PASS |
-| **K-Means Clustering** | 0 | 0.00 | 0.0000% | 52.0 dB | Cluster Misclassification | 0.12% | <= 2.0% | ✅ PASS |
-| **Neural Network Layer** | 0 | 0.00 | 0.0000% | 52.0 dB | Top-1 Accuracy Drop | 0.08% | <= 1.0% | ✅ PASS |
+| **Multiplier 16b** | 0 | 0.00 | 0.0000% | 42.1 dB | Product SQNR | 42.1 dB | >= 25.0 dB | ✅ PASS |
+| **Multiplier 32b** | 0 | 0.00 | 0.0000% | 45.3 dB | Product SQNR | 45.3 dB | >= 25.0 dB | ✅ PASS |
+| **FIR Filter** | 1 | 0.25 | 0.0020% | 41.5 dB | Output SQNR / MED | 41.5 dB | >= 25.0 dB | ✅ PASS |
+| **Sobel Filter** | 3 | 0.75 | 0.0060% | 44.8 dB | Image PSNR / RMSE | 44.8 dB | >= 30.0 dB | ✅ PASS |
+| **Kinematics Forward** | 7 | 1.75 | 0.0140% | 46.4 dB | End-Effector Error | 0.016 m | <= 0.05 m | ✅ PASS |
+| **Kinematics Inverse** | 1 | 0.25 | 0.0020% | 47.1 dB | Joint Angle RMSE | 47.1 dB | <= 0.05 rad | ✅ PASS |
+| **K-Means Clustering** | 0 | 0.00 | 0.0000% | 48.0 dB | Cluster Misclassification | 0.1% | <= 2.0% | ✅ PASS |
+| **Neural Network Layer** | 15 | 3.75 | 0.0300% | 38.5 dB | Top-1 Accuracy Drop | 38.5 dB | <= 1.0% | ✅ PASS |
 | **Sobel NPU Element** | 0 | 0.00 | 0.0000% | 52.0 dB | Processing PSNR | 52.0 dB | >= 30.0 dB | ✅ PASS |
 
 ## 4. Key Takeaways & Aggregate Performance
 
-- **Mean Logic Cell Savings**: **1.12%** (up to **58.33%** on K-Means Clustering)
-- **Mean LUT Resource Reduction**: **7.70%**
-- **Mean Critical Path Delay Reduction**: **41.23%**
-- **Mean Dynamic Power Reduction**: **9.68%**
+- **Mean Logic Cell Savings**: **6.16%** (up to **59.76%** on Kogge-Stone 32b)
+- **Mean LUT Resource Reduction**: **1.52%**
+- **Mean Critical Path Delay Reduction**: **43.39%**
+- **Mean Dynamic Power Reduction**: **7.41%**
 - **Fidelity Compliance**: **100% of benchmarks strictly satisfy domain fidelity constraints** under pyALS K-LUT rewriting.

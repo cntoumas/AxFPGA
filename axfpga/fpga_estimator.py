@@ -58,7 +58,7 @@ class FpgaEstimator:
         self,
         family: str = "xc7",
         device: str = "xc7a35t",
-        nodsp: bool = True,
+        nodsp: bool = False,
     ):
         self.family = family.lower()
         self.device = device.lower()
@@ -136,13 +136,14 @@ class FpgaEstimator:
         ff_count = sum(v for k, v in cells_by_type.items() if k.startswith("FD"))
         dsp_count = cells_by_type.get("DSP48E1", 0)
         muxf_count = sum(v for k, v in cells_by_type.items() if k.startswith("MUXF"))
+        ramb36_count = cells_by_type.get("RAMB36E1", 0)
+        ramb18_count = cells_by_type.get("RAMB18E1", 0)
+        bram_count = ramb36_count + ramb18_count
 
         # Estimated Logic Cells (Xilinx standard formula: LUTs + 2 * CARRY4)
         m_lc = re.search(r"Estimated number of LCs:\s*(\d+)", proc.stdout)
-        if m_lc:
-            est_lcs = int(m_lc.group(1))
-        else:
-            est_lcs = total_luts + 2 * carry4_count
+        stat_lcs = int(m_lc.group(1)) if m_lc else 0
+        est_lcs = max(total_luts + 2 * carry4_count, stat_lcs)
 
         lut_cap = self.device_capacity["luts"]
         ff_cap = self.device_capacity["ffs"]
@@ -155,7 +156,7 @@ class FpgaEstimator:
 
         # Power estimation on target FPGA (XC7A35T)
         static_pwr_mw = 68.0
-        dyn_pwr_mw = round(total_luts * 0.25 + carry4_count * 0.15 + ff_count * 0.08 + dsp_count * 4.5, 2)
+        dyn_pwr_mw = round(total_luts * 0.25 + carry4_count * 0.15 + ff_count * 0.08 + dsp_count * 4.5 + bram_count * 8.0, 2)
         total_pwr_mw = round(static_pwr_mw + dyn_pwr_mw, 2)
 
         return {
@@ -168,6 +169,9 @@ class FpgaEstimator:
             "ffs": ff_count,
             "dsps": dsp_count,
             "muxf": muxf_count,
+            "brams": bram_count,
+            "ramb36": ramb36_count,
+            "ramb18": ramb18_count,
             "estimated_lcs": est_lcs,
             "logic_levels": logic_levels,
             "critical_path_delay_ns": crit_delay_ns,

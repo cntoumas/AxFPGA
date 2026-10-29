@@ -41,7 +41,7 @@ class FpgaBackend:
         meta_json_path: Optional[str | Path] = None,
         target_family: str = "xc7",
         target_device: str = "xc7a35t",
-        nodsp: bool = True,
+        nodsp: bool = False,
         work_dir: Optional[str | Path] = None,
         trace_hex_path: Optional[str | Path] = None,
         sim_samples: int = 512,
@@ -67,12 +67,16 @@ class FpgaBackend:
         mod_name = mod_m.group(1)
         raw_ports = [p.strip() for p in mod_m.group(2).split(",") if p.strip()]
 
+        # Scope content strictly to the target module to avoid bleeding ports from sister modules
+        end_idx = content.find("endmodule")
+        mod_content = content[:end_idx + len("endmodule")] if end_idx != -1 else content
+
         inputs: Dict[str, Dict[str, Any]] = {}
         outputs: Dict[str, Dict[str, Any]] = {}
 
         # Parse port declarations (supports both ANSI header and non-ANSI body declarations)
         port_pat = re.compile(r"\b(input|output)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^\]]+)\]\s*)?(\S+)")
-        for line in content.splitlines():
+        for line in mod_content.splitlines():
             line = line.strip()
             m = port_pat.search(line)
             if m:
@@ -369,7 +373,7 @@ endmodule
             f"read_verilog -sv {self.cone_vlog}; "
             f"hierarchy -check -top {top_name}; "
             f"proc; opt_clean; "
-            f"synth_xilinx -family {self.target_family} -nodsp -top {top_name}; "
+            f"synth_xilinx -family {self.target_family} -top {top_name}; "
             f"clean; "
             f"write_verilog -noattr {base_lut_v}"
         )

@@ -82,7 +82,8 @@ class Reintegrator:
 
         try:
             tech_cmd = f"read_verilog {self.tech_v}; " if self.tech_v.exists() else ""
-            flatten_cmd = "flatten; opt_clean; " if flatten else ""
+            protect_cmd = "setattr -set keep_hierarchy 1 t:*_lut t:*_rom t:*_ram t:*mem* t:*_table; "
+            flatten_cmd = f"{protect_cmd}flatten; opt_clean; " if flatten else ""
             cmd = (
                 f"read_verilog {self.top_shell_path} {self.approx_cone_path}; "
                 f"{extra_submods_cmd}"

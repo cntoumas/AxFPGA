@@ -57,7 +57,7 @@ class PyAlsBridge:
         timeout: int = 60000,
         target_family: str = "xc7",
         target_device: str = "xc7a35t",
-        nodsp: bool = True,
+        nodsp: bool = False,
         sim_samples: int = 256,
     ):
         self.cone_vlog = Path(cone_verilog_path).resolve()
@@ -91,11 +91,15 @@ class PyAlsBridge:
         mod_name = mod_m.group(1)
         raw_ports = [p.strip() for p in mod_m.group(2).split(",") if p.strip()]
 
+        # Scope content strictly to the target module to avoid bleeding ports from sister modules
+        end_idx = content.find("endmodule")
+        mod_content = content[:end_idx + len("endmodule")] if end_idx != -1 else content
+
         inputs: Dict[str, Dict[str, Any]] = {}
         outputs: Dict[str, Dict[str, Any]] = {}
 
-        port_pat = re.compile(r"\b(input|output)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^\]]+)\]\s*)?(\S+)")
-        for line in content.splitlines():
+        port_pat = re.compile(r"\b(input|output|inout)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^\]]+)\]\s*)?(\S+)")
+        for line in mod_content.splitlines():
             line = line.strip()
             m = port_pat.search(line)
             if m:
@@ -108,14 +112,21 @@ class PyAlsBridge:
                     if w_m:
                         width = abs(int(w_m.group(1)) - int(w_m.group(2))) + 1
                 info = {"name": name, "width": width, "signed": False}
-                if direction == "input":
+                if direction in ("input", "inout"):
                     inputs[name] = info
-                else:
+                if direction in ("output", "inout"):
                     outputs[name] = info
 
         # Select relaxed output
         multi_outs = [k for k, v in outputs.items() if v["width"] > 1]
-        relaxed_out = multi_outs[0] if multi_outs else list(outputs.keys())[-1]
+        if multi_outs:
+            relaxed_out = multi_outs[0]
+        elif outputs:
+            relaxed_out = list(outputs.keys())[-1]
+        elif inputs:
+            relaxed_out = list(inputs.keys())[-1]
+        else:
+            relaxed_out = "out"
 
         return {
             "module_name": mod_name,
@@ -123,7 +134,7 @@ class PyAlsBridge:
             "inputs": inputs,
             "outputs": outputs,
             "relaxed_output": relaxed_out,
-            "raw_content": content,
+            "raw_content": mod_content,
         }
 
     def generate_catalog_candidates(self) -> List[Dict[str, Any]]:
@@ -293,6 +304,18 @@ class PyAlsBridge:
                         "replaced_luts": replaced,
                     })
 
+        # 6. Candidate: Single-LUT6 4:2 and 5:3 / 5:2 compressor rewriting
+        from axfpga.compressors import generate_compressor_candidates
+        try:
+            comp_cands = generate_compressor_candidates(
+                cone_content=content,
+                iface=iface,
+                work_dir=self.work_dir,
+            )
+            candidates.extend(comp_cands)
+        except Exception as exc:
+            logger.warning("Could not generate compressor candidates: %s", exc)
+
         return candidates
 
     def optimize(
@@ -308,7 +331,7 @@ class PyAlsBridge:
 
         iface = self._parse_cone_interface()
         exact_clean_v = self.work_dir / "exact_cone_clean.v"
-        shutil.copy(self.cone_vlog, exact_clean_v)
+        exact_clean_v.write_text(iface["raw_content"], encoding="utf-8")
 
         base_res = self.estimator.evaluate_netlist(exact_clean_v, top_module=iface["module_name"])
         base_lcs = base_res.get("estimated_lcs", 100)

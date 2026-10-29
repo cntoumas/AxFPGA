@@ -15,3 +15,5 @@ build/
 *.saif
 tmp/
 *.log
+a.out
+

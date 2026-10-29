@@ -56,7 +56,7 @@ class AxcFlow:
         target: str = "fpga",
         fpga_family: str = "xc7",
         fpga_device: str = "xc7a35t",
-        fpga_nodsp: bool = True,
+        fpga_nodsp: bool = False,
     ):
         self.input_verilog = Path(input_verilog).resolve()
         self.output_dir = Path(output_dir).resolve()
@@ -379,7 +379,8 @@ def main() -> None:
     parser.add_argument("--target", default="fpga", choices=["asic", "fpga"], help="Target architecture: fpga (Xilinx 7-Series) or asic")
     parser.add_argument("--fpga-family", default="xc7", help="Target FPGA family (default: xc7)")
     parser.add_argument("--fpga-device", default="xc7a35t", help="Target FPGA reference device (default: xc7a35t)")
-    parser.add_argument("--allow-dsp", action="store_true", help="Allow DSP slice inference on FPGA (default maps arithmetic to soft-logic LUTs/carry)")
+    parser.add_argument("--nodsp", action="store_true", help="Disable DSP slice inference on FPGA (defaults to allowing DSPs)")
+    parser.add_argument("--allow-dsp", action="store_true", default=True, help="Allow DSP slice inference on FPGA (default: enabled)")
     parser.add_argument("--clk", "--clk-port", dest="clk", default="clk", help="Clock port name")
     parser.add_argument("--period", "--clk-period", dest="period", type=float, default=10.0, help="Clock period in ns")
     parser.add_argument("-s", "--samples", type=int, default=300, help="Simulation samples")
@@ -417,7 +418,7 @@ def main() -> None:
         target=args.target,
         fpga_family=args.fpga_family,
         fpga_device=args.fpga_device,
-        fpga_nodsp=not args.allow_dsp,
+        fpga_nodsp=args.nodsp,
     )
     result = flow.run()
     print(json.dumps(result, indent=2))

@@ -82,13 +82,35 @@ class ConeExtractor:
         self.design = ys.Design()
 
     def elaborate(self) -> ys.Module:
-        """Elaborate behavioral blocks into RTLIL netlist."""
+        """Elaborate behavioral blocks into RTLIL netlist, protecting memory primitives."""
         top_cmd = f"hierarchy -check -top {self.top_module_name}" if self.top_module_name else "hierarchy -check -auto-top"
         decomp_cmd = "; alumacc; techmap; opt_clean" if self.decompose_operators else ""
         read_cmd = " ".join(f"read_verilog -sv {p};" for p in self.verilog_paths)
-        cmd = f"{read_cmd} {top_cmd}; proc; memory; flatten; delete t:$scopeinfo; opt_expr{decomp_cmd}; opt_clean"
-        logger.info("Executing Pyosys elaboration: %s", cmd)
-        ys.run_pass(cmd, self.design)
+        
+        # Step 1: Read files and elaborate behavioral processes with unmapped memories
+        pre_cmd = f"{read_cmd} {top_cmd}; proc; memory -nomap;"
+        logger.info("Executing Pyosys elaboration frontend: %s", pre_cmd)
+        ys.run_pass(pre_cmd, self.design)
+
+        # Step 2: Protect any module with memories, arrays, or lookup tables from flattening
+        # This guarantees Yosys synth_xilinx can later infer dedicated Block RAMs (RAMB36E1/RAMB18E1)
+        for mod_name, mod in self.design.modules_.items():
+            name_str = mod_name.str().lstrip("\\").lower()
+            has_mem = len(mod.memories) > 0
+            if not has_mem:
+                for _, cell in mod.cells_.items():
+                    c_type = cell.type.str().lower()
+                    if "mem" in c_type:
+                        has_mem = True
+                        break
+            if has_mem or any(tag in name_str for tag in ("_lut", "_rom", "_ram", "_table", "sin", "cos")):
+                mod.attributes[ys.IdString("\\keep_hierarchy")] = ys.Const(1)
+                logger.info("Preserving memory/lookup hierarchy for module: %s", mod_name.str())
+
+        # Step 3: Flatten combinational/arithmetic logic (preserving protected memory modules)
+        post_cmd = f"setattr -set keep_hierarchy 1 t:*_lut t:*_rom t:*_ram t:*mem* t:*_table; flatten; delete t:$scopeinfo; opt_expr{decomp_cmd}; opt_clean"
+        logger.info("Executing Pyosys selective flattening: %s", post_cmd)
+        ys.run_pass(post_cmd, self.design)
 
         top = self.design.top_module()
         if top is None:
@@ -143,6 +165,8 @@ class ConeExtractor:
             if cell.type.str() == "$scopeinfo":
                 continue
             is_seq = self.is_sequential_cell(cell)
+            is_hier = cell.type.str().startswith("\\") or (cell.type in self.design.modules_)
+            is_mem = any(tag in cell.type.str().lower() for tag in ("_lut", "_rom", "_ram", "_table", "mem"))
             if is_seq:
                 seq_cells.add(cname)
             cell_inputs[cname] = set()
@@ -156,7 +180,7 @@ class ConeExtractor:
                         c_b = dsu.find((b.wire.name.str(), b.offset))
                         if is_out:
                             cell_outputs[cname].add(c_b)
-                            if not is_seq:
+                            if not is_seq and not is_hier and not is_mem:
                                 bit_drivers[c_b] = cname
                         if is_in:
                             cell_inputs[cname].add(c_b)
@@ -229,14 +253,50 @@ class ConeExtractor:
                 for i in range(wire.width):
                     precise_seeds.add(dsu.find((wname, i)))
 
-        # 4. Handle sequential cells:
-        # - Control pins (CLK, ARST, SRST, EN, etc.) are always protected (added to precise_seeds).
-        # - If a FF's output Q has relax_seeds, propagate those relax_seeds to the corresponding bits of D,
-        #   and do NOT add D to precise_seeds.
-        # - If a FF's output Q is unrelaxed / precise, add its D bits to precise_seeds.
+        # 4. Multi-stage fixed-point propagation across pipeline FFs and memory/ROM lookup blocks.
+        # Error tolerance on downstream signals transparently propagates through registers and
+        # memory tables to the combinational arithmetic logic (adders, multipliers, etc.) driving them.
+        # Memory primitives and sequential elements are NEVER extracted into c_safe.
+        changed = True
+        while changed:
+            old_len = len(relax_seeds)
+
+            # 4a. Propagate relax_seeds across protected memory / hierarchical lookup blocks
+            for cname_id, cell in top.cells_.items():
+                cname = cname_id.str()
+                is_hier = cell.type.str().startswith("\\") or (cell.type in self.design.modules_)
+                is_mem = any(tag in cell.type.str().lower() for tag in ("_lut", "_rom", "_ram", "_table", "mem"))
+                if is_hier or is_mem:
+                    if any(b in relax_seeds for b in cell_outputs[cname]):
+                        for in_b in cell_inputs[cname]:
+                            relax_seeds.add(in_b)
+
+            # 4b. Propagate relax_seeds across sequential flip-flops (Q -> D)
+            for cname in seq_cells:
+                cell = top.cell(ys.IdString(cname))
+                relaxed_q_indices: Set[int] = set()
+                for pname, sig in cell.connections().items():
+                    if cell.output(pname):
+                        for idx, b in enumerate(sig):
+                            if b.wire and dsu.find((b.wire.name.str(), b.offset)) in relax_seeds:
+                                relaxed_q_indices.add(idx)
+
+                for pname, sig in cell.connections().items():
+                    if cell.input(pname):
+                        pname_str = pname.str().upper()
+                        is_data_in = pname_str in (r"\D", r"\DATA")
+                        for idx, b in enumerate(sig):
+                            if b.wire:
+                                canon_b = dsu.find((b.wire.name.str(), b.offset))
+                                if is_data_in and idx in relaxed_q_indices:
+                                    relax_seeds.add(canon_b)
+
+            changed = (len(relax_seeds) > old_len)
+
+        # 4c. Collect precise seeds from unrelaxed sequential cell inputs and control pins
         for cname in seq_cells:
             cell = top.cell(ys.IdString(cname))
-            relaxed_q_indices: Set[int] = set()
+            relaxed_q_indices = set()
             for pname, sig in cell.connections().items():
                 if cell.output(pname):
                     for idx, b in enumerate(sig):
@@ -250,9 +310,7 @@ class ConeExtractor:
                     for idx, b in enumerate(sig):
                         if b.wire:
                             canon_b = dsu.find((b.wire.name.str(), b.offset))
-                            if is_data_in and idx in relaxed_q_indices:
-                                relax_seeds.add(canon_b)
-                            else:
+                            if not (is_data_in and idx in relaxed_q_indices) and canon_b not in relax_seeds:
                                 precise_seeds.add(canon_b)
 
         if not relax_seeds:

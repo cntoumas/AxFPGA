@@ -14,6 +14,7 @@ Runs the complete 13-benchmark evaluation from axbench-verilog:
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import logging
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 # AxFPGA native components
+from pyosys import libyosys as ys
 from axfpga.cone_extractor import ConeExtractor
 from axfpga.pyals_bridge import PyAlsBridge
 from axfpga.reintegrator import Reintegrator
@@ -359,54 +361,104 @@ def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator) -> Dict[str, 
     )
     logger.info("Cone extraction status: %s | Safe cells: %d", meta.get("status"), len(meta.get("safe_cells", [])))
 
-    if not cone_v.exists() or meta.get("status") in ("NO_RELAX_SIGNALS", "TAINTED_EMPTY_SAFE_SET"):
-        logger.warning("Cone extraction returned %s for %s; using full exact netlist as candidate cone", meta.get("status"), top_mod)
-        shutil.copy(exact_top_v, cone_v)
-        shutil.copy(exact_top_v, shell_v)
-
-    # Stage 3: pyALS Optimization with Salvatore Barone's lut_catalog.db
-    logger.info("[Stage 3] Optimizing safe cone via pyALS Catalog Rewriter...")
-    bridge = PyAlsBridge(
-        cone_verilog_path=cone_v,
-        meta_json_path=meta_json if meta_json.exists() else None,
-        work_dir=bench_work / "pyals_run",
-        cut_size=4,
-        target_family="xc7",
-        target_device="xc7a35t",
-        nodsp=True,
-        sim_samples=64,
-    )
     approx_cone_v = bench_work / "champion_approx_cone.v"
-    opt_res = bridge.optimize(
-        metric=bench["metric"],
-        bound=bench["bound"],
-        out_approx_path=approx_cone_v,
-    )
-    logger.info("pyALS Result: Method=%s | Cone LCs: %d -> %d (%.1f%% savings) | Error=%.2f",
-                opt_res.get("method"), opt_res.get("baseline_lcs", 0),
-                opt_res.get("optimized_lcs", 0), opt_res.get("lc_savings_pct", 0.0),
-                opt_res.get("measured_error", 0.0))
-
-    # Stage 4: Reintegration into Top-Level Wrapper
-    logger.info("[Stage 4] Reintegrating champion approximate cone with top shell...")
     final_approx_top_v = bench_work / "final_approx_top.v"
-    is_fallback = meta.get("status") in ("NO_RELAX_SIGNALS", "TAINTED_EMPTY_SAFE_SET")
-    if not is_fallback and shell_v.exists() and cone_v.exists():
-        reintegrator = Reintegrator(
-            top_shell_path=shell_v,
-            approx_cone_path=approx_cone_v,
-            extracted_cone_path=cone_v,
-            tech="",
-        )
-        reintegrator.reintegrate(out_final_path=final_approx_top_v, flatten=True)
+    has_safe_cone = cone_v.exists() and len(meta.get("safe_cells", [])) > 0 and meta.get("status") not in ("NO_RELAX_SIGNALS", "TAINTED_EMPTY_SAFE_SET")
+
+    if not has_safe_cone:
+        logger.warning("No safe cells extracted for %s (status: %s); preserving baseline exact design", top_mod, meta.get("status"))
+        shutil.copy(exact_top_v, final_approx_top_v)
+        opt_res = {
+            "method": "baseline_exact",
+            "baseline_lcs": exact_res["estimated_lcs"],
+            "optimized_lcs": exact_res["estimated_lcs"],
+            "lc_savings_pct": 0.0,
+            "measured_error": 0.0,
+        }
     else:
-        shutil.copy(approx_cone_v, final_approx_top_v)
+        # Stage 3: pyALS Optimization with Salvatore Barone's lut_catalog.db
+        logger.info("[Stage 3] Optimizing safe cone via pyALS Catalog Rewriter...")
+        bridge = PyAlsBridge(
+            cone_verilog_path=cone_v,
+            meta_json_path=meta_json if meta_json.exists() else None,
+            work_dir=bench_work / "pyals_run",
+            cut_size=4,
+            target_family="xc7",
+            target_device="xc7a35t",
+            nodsp=False,
+            sim_samples=64,
+        )
+        opt_res = bridge.optimize(
+            metric=bench["metric"],
+            bound=bench["bound"],
+            out_approx_path=approx_cone_v,
+        )
+        logger.info("pyALS Result: Method=%s | Cone LCs: %d -> %d (%.1f%% savings) | Error=%.2f",
+                    opt_res.get("method"), opt_res.get("baseline_lcs", 0),
+                    opt_res.get("optimized_lcs", 0), opt_res.get("lc_savings_pct", 0.0),
+                    opt_res.get("measured_error", 0.0))
+
+        # Stage 4: Reintegration into Top-Level Wrapper
+        logger.info("[Stage 4] Reintegrating champion approximate cone with top shell...")
+        if shell_v.exists() and cone_v.exists():
+            if len(bench["files"]) > 1:
+                # Multi-file design: preserve original untouched submodules to protect memory/DSP behavioral primitives
+                untouched_parts = []
+                for f in bench["files"]:
+                    f_txt = f.read_text(encoding="utf-8", errors="ignore")
+                    if not re.search(rf"\bmodule\s+{top_mod}\b", f_txt):
+                        untouched_parts.append(f_txt)
+
+                # Extract only the modified top module from shell_v
+                d_shell = ys.Design()
+                ys.run_pass(f"read_verilog {shell_v}", d_shell)
+                shell_top_only = bench_work / ".tmp_shell_top_only.v"
+                ys.run_pass(f"select -module {top_mod}; write_verilog -selected {shell_top_only}; select -clear", d_shell)
+
+                # Check for any auxiliary/sister cones from extracted_cone.v not in approx_cone_v
+                extra_cone_parts = []
+                if cone_v.exists():
+                    d_approx = ys.Design()
+                    ys.run_pass(f"read_verilog -sv {approx_cone_v}", d_approx)
+                    approx_mods = set(m.str().lstrip("\\") for m in d_approx.modules_.keys())
+
+                    d_extracted = ys.Design()
+                    ys.run_pass(f"read_verilog -sv {cone_v}", d_extracted)
+                    extracted_mods = set(m.str().lstrip("\\") for m in d_extracted.modules_.keys())
+
+                    missing_mods = extracted_mods - approx_mods
+                    if missing_mods:
+                        tmp_extra_cone = bench_work / ".tmp_extra_cones.v"
+                        sel_expr = " ".join(f"\\{m}" for m in sorted(missing_mods))
+                        ys.run_pass(f"select {sel_expr}; write_verilog -selected {tmp_extra_cone}; select -clear", d_extracted)
+                        if tmp_extra_cone.exists():
+                            extra_cone_parts.append(tmp_extra_cone.read_text(encoding="utf-8", errors="ignore"))
+                            tmp_extra_cone.unlink()
+
+                full_parts = untouched_parts + extra_cone_parts + [
+                    shell_top_only.read_text(encoding="utf-8", errors="ignore"),
+                    approx_cone_v.read_text(encoding="utf-8", errors="ignore"),
+                ]
+                final_approx_top_v.write_text("\n\n".join(full_parts), encoding="utf-8")
+                if shell_top_only.exists():
+                    shell_top_only.unlink()
+            else:
+                reintegrator = Reintegrator(
+                    top_shell_path=shell_v,
+                    approx_cone_path=approx_cone_v,
+                    extracted_cone_path=cone_v,
+                    tech="",
+                )
+                reintegrator.reintegrate(out_final_path=final_approx_top_v, flatten=False)
+        else:
+            shutil.copy(approx_cone_v, final_approx_top_v)
 
     # Stage 5: Approximate Top FPGA Synthesis via Yosys
     logger.info("[Stage 5] Synthesizing final approximate design in Yosys...")
     approx_res = estimator.evaluate_netlist(final_approx_top_v, top_module=top_mod, work_dir=bench_work)
-    logger.info("Approximate: LUTs=%d, CARRY4=%d, FFs=%d, LCs=%d, Delay=%.3fns, DynPwr=%.2fmW",
+    logger.info("Approximate: LUTs=%d, CARRY4=%d, FFs=%d, DSPs=%d, BRAMs=%d, LCs=%d, Delay=%.3fns, DynPwr=%.2fmW",
                 approx_res["total_luts"], approx_res["carry4"], approx_res["ffs"],
+                approx_res["dsps"], approx_res.get("brams", 0),
                 approx_res["estimated_lcs"], approx_res["critical_path_delay_ns"], approx_res["dynamic_power_mw"])
 
     # Stage 6: Calculate Hardware Savings, Timing, Power, and Error Metrics
@@ -421,6 +473,9 @@ def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator) -> Dict[str, 
 
     dsp_saved = exact_res["dsps"] - approx_res["dsps"]
     dsp_saved_pct = round(((dsp_saved) / exact_res["dsps"] * 100.0), 2) if exact_res["dsps"] > 0 else 0.0
+
+    bram_saved = exact_res.get("brams", 0) - approx_res.get("brams", 0)
+    bram_saved_pct = round(((bram_saved) / exact_res["brams"] * 100.0), 2) if exact_res.get("brams", 0) > 0 else 0.0
 
     lc_saved = exact_res["estimated_lcs"] - approx_res["estimated_lcs"]
     lc_saved_pct = round(((lc_saved) / exact_res["estimated_lcs"] * 100.0), 2) if exact_res["estimated_lcs"] > 0 else 0.0
@@ -465,6 +520,7 @@ def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator) -> Dict[str, 
             "carry4": exact_res["carry4"],
             "ffs": exact_res["ffs"],
             "dsps": exact_res["dsps"],
+            "brams": exact_res.get("brams", 0),
             "logic_cells": exact_res["estimated_lcs"],
             "logic_levels": exact_res["logic_levels"],
             "critical_path_delay_ns": exact_res["critical_path_delay_ns"],
@@ -478,6 +534,7 @@ def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator) -> Dict[str, 
             "carry4": approx_res["carry4"],
             "ffs": approx_res["ffs"],
             "dsps": approx_res["dsps"],
+            "brams": approx_res.get("brams", 0),
             "logic_cells": approx_res["estimated_lcs"],
             "logic_levels": approx_res["logic_levels"],
             "critical_path_delay_ns": approx_res["critical_path_delay_ns"],
@@ -495,6 +552,8 @@ def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator) -> Dict[str, 
             "ff_saved_pct": ff_saved_pct,
             "dsp_saved": dsp_saved,
             "dsp_saved_pct": dsp_saved_pct,
+            "bram_saved": bram_saved,
+            "bram_saved_pct": bram_saved_pct,
             "lc_saved": lc_saved,
             "lc_saved_pct": lc_saved_pct,
             "delay_saved_ns": delay_saved_ns,
@@ -535,6 +594,8 @@ def export_results(results: List[Dict[str, Any]]) -> Tuple[Path, Path]:
         "Exact LUTs", "Approx LUTs", "LUT Savings (%)",
         "Exact CARRY4", "Approx CARRY4",
         "Exact FFs", "Approx FFs",
+        "Exact DSPs", "Approx DSPs",
+        "Exact BRAMs", "Approx BRAMs",
         "Exact LCs", "Approx LCs", "LC Savings (%)",
         "Exact Delay (ns)", "Approx Delay (ns)", "Delay Savings (%)",
         "Exact Fmax (MHz)", "Approx Fmax (MHz)",
@@ -558,6 +619,8 @@ def export_results(results: List[Dict[str, Any]]) -> Tuple[Path, Path]:
                 eu["luts"], au["luts"], s["lut_saved_pct"],
                 eu["carry4"], au["carry4"],
                 eu["ffs"], au["ffs"],
+                eu.get("dsps", 0), au.get("dsps", 0),
+                eu.get("brams", 0), au.get("brams", 0),
                 eu["logic_cells"], au["logic_cells"], s["lc_saved_pct"],
                 eu["critical_path_delay_ns"], au["critical_path_delay_ns"], s["delay_saved_pct"],
                 eu["fmax_mhz"], au["fmax_mhz"],
@@ -575,13 +638,15 @@ def export_results(results: List[Dict[str, Any]]) -> Tuple[Path, Path]:
     md.append("")
     md.append("Comprehensive evaluation across all 13 AxBench benchmark circuits evaluating Salvatore Barone's **pyALS** catalog-based AIG-rewriting logic synthesis targeting the **Xilinx Artix-7 (`xc7a35t`)** FPGA architecture.")
     md.append("")
-    md.append("## 1. Hardware Resource Savings (LUTs, CARRY4, Logic Cells)")
+    md.append("## 1. Hardware Resource Savings (LUTs, CARRY4, DSPs, BRAMs, Logic Cells)")
     md.append("")
-    md.append("| Benchmark | Domain | pyALS Mutant | Exact LUTs | Approx LUTs | LUT Sav (%) | Exact C4 | Approx C4 | Exact LCs | Approx LCs | LC Sav (%) |")
-    md.append("|:---|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|")
+    md.append("| Benchmark | Domain | pyALS Mutant | Exact LUTs | Approx LUTs | LUT Sav (%) | Exact C4 | Approx C4 | DSPs (Ex/Ap) | BRAMs (Ex/Ap) | Exact LCs | Approx LCs | LC Sav (%) |")
+    md.append("|:---|:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|")
     for r in results:
         eu, au, s = r["exact_util"], r["approx_util"], r["savings"]
-        md.append(f"| **{r['name']}** | {r['domain']} | `{r['method']}` | {eu['luts']} | {au['luts']} | **{s['lut_saved_pct']:.1f}%** | {eu['carry4']} | {au['carry4']} | {eu['logic_cells']} | {au['logic_cells']} | **{s['lc_saved_pct']:.1f}%** |")
+        dsp_str = f"{eu.get('dsps', 0)}/{au.get('dsps', 0)}"
+        bram_str = f"{eu.get('brams', 0)}/{au.get('brams', 0)}"
+        md.append(f"| **{r['name']}** | {r['domain']} | `{r['method']}` | {eu['luts']} | {au['luts']} | **{s['lut_saved_pct']:.1f}%** | {eu['carry4']} | {au['carry4']} | {dsp_str} | {bram_str} | {eu['logic_cells']} | {au['logic_cells']} | **{s['lc_saved_pct']:.1f}%** |")
     md.append("")
     md.append("## 2. Timing & Power Dissipation (Delay, Fmax, Dynamic & Total Power)")
     md.append("")
@@ -624,10 +689,20 @@ def export_results(results: List[Dict[str, Any]]) -> Tuple[Path, Path]:
 
 
 def main():
-    logger.info("Starting Full 13-Benchmark pyALS + Yosys Evaluation Flow...")
+    parser = argparse.ArgumentParser(description="Run pyALS Yosys Benchmark Suite")
+    parser.add_argument("--benchmark", "-b", type=str, default=None, help="Run a specific benchmark by ID")
+    parser.add_argument("--nodsp", action="store_true", help="Disable dedicated DSP blocks")
+    args = parser.parse_args()
+
+    logger.info("Starting pyALS + Yosys Evaluation Flow (DSPs: %s)...", "DISABLED" if args.nodsp else "ENABLED")
     t_start = time.time()
-    estimator = FpgaEstimator(family="xc7", device="xc7a35t", nodsp=True)
+    estimator = FpgaEstimator(family="xc7", device="xc7a35t", nodsp=args.nodsp)
     suite = define_benchmark_suite()
+    if args.benchmark:
+        suite = [b for b in suite if b["id"] == args.benchmark or b["top"] == args.benchmark]
+        if not suite:
+            logger.error("Benchmark '%s' not found in suite!", args.benchmark)
+            return
 
     results: List[Dict[str, Any]] = []
     for bench in suite:
@@ -637,7 +712,7 @@ def main():
     json_p, csv_p = export_results(results)
     elapsed = round(time.time() - t_start, 2)
     logger.info("================================================================================")
-    logger.info("All 13 Benchmarks Completed Successfully in %.2fs!", elapsed)
+    logger.info("Benchmarks Completed Successfully in %.2fs!", elapsed)
     logger.info("Results saved to:")
     logger.info("  JSON: %s", json_p)
     logger.info("  CSV:  %s", csv_p)
