@@ -99,6 +99,7 @@ class FpgaEstimator:
             f"read_verilog -sv {netlist}; "
             f"synth_xilinx -family {self.family} -flatten -noiopad {dsp_flag} -top {top_module}; "
             f"{out_vlog_cmd} "
+            f"ltp; "
             f"stat -json"
         )
 
@@ -146,6 +147,17 @@ class FpgaEstimator:
         lut_cap = self.device_capacity["luts"]
         ff_cap = self.device_capacity["ffs"]
 
+        # Longest topological path (timing)
+        m_ltp = re.search(r"Longest topological path in [^\n]+\(length=(\d+)\)", proc.stdout)
+        logic_levels = int(m_ltp.group(1)) if m_ltp else 1
+        crit_delay_ns = round(max(0.2, logic_levels * 0.474), 3)
+        fmax_mhz = round(1000.0 / crit_delay_ns, 1) if crit_delay_ns > 0 else 0.0
+
+        # Power estimation on target FPGA (XC7A35T)
+        static_pwr_mw = 68.0
+        dyn_pwr_mw = round(total_luts * 0.25 + carry4_count * 0.15 + ff_count * 0.08 + dsp_count * 4.5, 2)
+        total_pwr_mw = round(static_pwr_mw + dyn_pwr_mw, 2)
+
         return {
             "top_module": top_module,
             "family": self.family,
@@ -157,6 +169,12 @@ class FpgaEstimator:
             "dsps": dsp_count,
             "muxf": muxf_count,
             "estimated_lcs": est_lcs,
+            "logic_levels": logic_levels,
+            "critical_path_delay_ns": crit_delay_ns,
+            "fmax_mhz": fmax_mhz,
+            "static_power_mw": static_pwr_mw,
+            "dynamic_power_mw": dyn_pwr_mw,
+            "total_power_mw": total_pwr_mw,
             "device_capacity": self.device_capacity,
             "lut_utilization_pct": round((total_luts / lut_cap) * 100.0, 3) if lut_cap else 0.0,
             "ff_utilization_pct": round((ff_count / ff_cap) * 100.0, 3) if ff_cap else 0.0,
@@ -198,6 +216,21 @@ class FpgaEstimator:
         lcs_saved = base_lcs - app_lcs
         lc_red_pct = ((lcs_saved) / base_lcs * 100.0) if base_lcs > 0 else 0.0
 
+        base_delay = exact_res["critical_path_delay_ns"]
+        app_delay = approx_res["critical_path_delay_ns"]
+        delay_saved_ns = round(base_delay - app_delay, 3)
+        delay_saved_pct = round(((delay_saved_ns) / base_delay * 100.0), 2) if base_delay > 0 else 0.0
+
+        base_dyn_pwr = exact_res["dynamic_power_mw"]
+        app_dyn_pwr = approx_res["dynamic_power_mw"]
+        dyn_pwr_saved = round(base_dyn_pwr - app_dyn_pwr, 2)
+        dyn_pwr_saved_pct = round(((dyn_pwr_saved) / base_dyn_pwr * 100.0), 2) if base_dyn_pwr > 0 else 0.0
+
+        base_tot_pwr = exact_res["total_power_mw"]
+        app_tot_pwr = approx_res["total_power_mw"]
+        tot_pwr_saved = round(base_tot_pwr - app_tot_pwr, 2)
+        tot_pwr_saved_pct = round(((tot_pwr_saved) / base_tot_pwr * 100.0), 2) if base_tot_pwr > 0 else 0.0
+
         return {
             "top_module": top_module,
             "family": self.family,
@@ -210,6 +243,12 @@ class FpgaEstimator:
             "carry_reduction_pct": round(carry_red_pct, 2),
             "lcs_saved": lcs_saved,
             "lc_reduction_pct": round(lc_red_pct, 2),
+            "delay_saved_ns": delay_saved_ns,
+            "delay_saved_pct": delay_saved_pct,
+            "dynamic_power_saved_mw": dyn_pwr_saved,
+            "dynamic_power_saved_pct": dyn_pwr_saved_pct,
+            "total_power_saved_mw": tot_pwr_saved,
+            "total_power_saved_pct": tot_pwr_saved_pct,
         }
 
     @staticmethod

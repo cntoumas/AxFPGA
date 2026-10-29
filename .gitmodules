@@ -1,0 +1,9 @@
+[submodule "pyALS"]
+	path = pyALS
+	url = https://github.com/SalvatoreBarone/pyALS.git
+[submodule "pyALSlib"]
+	path = pyALSlib
+	url = https://github.com/SalvatoreBarone/pyALSlib.git
+[submodule "pyALS-lut-catalog"]
+	path = pyALS-lut-catalog
+	url = https://github.com/SalvatoreBarone/pyALS-lut-catalog.git

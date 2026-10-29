@@ -47,11 +47,8 @@ In addition to catalog rewriting, `AxFPGA` includes FPGA-native structural arith
   - For soft-logic multipliers (non-DSP), truncates both horizontal ($h$) and vertical ($v$) partial-product diagonals:
   - Eliminates $(h \cdot N + v \cdot M - h \cdot v)$ partial product AND gates and downstream CARRY4 addition trees.
 
-### 1.3 Algorithm & Architecture Perforation
-- **RTL Loop / Tap Perforation**:
-  - Drops symmetric or low-magnitude taps in FIR/IIR filters.
-  - Drops stencil neighbors (e.g. 9-tap 2D convolution reduced to 5-tap cross).
-  - Translates directly into saved `DSP48E1` or pipelined MAC logic slices.
+### 1.3 Native 6-LUT / 4-LUT Cut Pruning
+- Prunes high-input-fanout LUT cuts and evaluates signal observability under active stimulus vectors to collapse multi-level LUT trees into shallower logic paths.
 
 ---
 
@@ -64,7 +61,6 @@ AxFPGA/
 │   ├── pyals_bridge.py           # pyALS & lut_catalog.db integration bridge
 │   ├── fpga_backend.py           # LOA, BAM, pyALS approximation tournament backend
 │   ├── fpga_estimator.py         # Xilinx 7-series LUT, CARRY4, DSP, LC estimator
-│   ├── perforator.py             # RTL AST loop & tap perforator
 │   ├── cone_extractor.py         # Pyosys RTLIL cone extractor (axc_relax / axc_precise)
 │   ├── trace_extractor.py        # Top-level realistic trace simulation
 │   ├── reintegrator.py           # Hierarchical cone reintegrator

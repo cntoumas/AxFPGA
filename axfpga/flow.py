@@ -57,7 +57,6 @@ class AxcFlow:
         fpga_family: str = "xc7",
         fpga_device: str = "xc7a35t",
         fpga_nodsp: bool = True,
-        perforate: str = "none",
     ):
         self.input_verilog = Path(input_verilog).resolve()
         self.output_dir = Path(output_dir).resolve()
@@ -77,7 +76,6 @@ class AxcFlow:
         self.fpga_family = fpga_family.lower()
         self.fpga_device = fpga_device.lower()
         self.fpga_nodsp = fpga_nodsp
-        self.perforate = perforate.lower()
 
         # Auto-detect FPGA from tech string
         if self.tech.lower() in ("xc7", "artix7", "xilinx"):
@@ -103,47 +101,9 @@ class AxcFlow:
         logger.info("Technology: %s (library file: %s)", self.tech, self.tech_vlog_path)
 
         # -------------------------------------------------------------
-        # STEP 0: Hardware Loop / Tap Perforation (if requested)
-        # -------------------------------------------------------------
-        current_input_vlog = self.input_verilog
-        if self.perforate != "none":
-            logger.info("--- Step 0: Hardware Loop / Tap Perforation (mode: %s) ---", self.perforate)
-            try:
-                from axfpga.perforator import RtlLoopPerforator
-                perforator = RtlLoopPerforator(verilog_path=self.input_verilog, work_dir=self.output_dir)
-                if self.perforate in ("spatial", "auto"):
-                    trees = perforator.detect_spatial_sum_trees()
-                    if trees:
-                        tree = trees[0]
-                        current_input_vlog = perforator.perforate_spatial_tree(
-                            tree,
-                            num_taps_to_drop=1,
-                            out_path=self.output_dir / f"perforated_{self.input_verilog.name}",
-                        )
-                        logger.info("Spatial tap perforation applied: dropped 1 tap from %s", tree.target_signal)
-                elif self.perforate in ("sequential", "auto"):
-                    counters = perforator.detect_sequential_counters()
-                    if counters:
-                        counter = counters[0]
-                        current_input_vlog = perforator.perforate_sequential_counter(
-                            counter,
-                            cycle_reduction=1,
-                            out_path=self.output_dir / f"perforated_{self.input_verilog.name}",
-                        )
-                        logger.info("Sequential counter perforation applied: reduced %s bound by 1 cycle", counter.counter_name)
-                elif self.perforate in ("temporal", "auto"):
-                    if "valid_in" in self.input_verilog.read_text(encoding="utf-8"):
-                        current_input_vlog = perforator.perforate_temporal_decimation(
-                            stride=2,
-                            out_path=self.output_dir / f"perforated_{self.input_verilog.name}",
-                        )
-                        logger.info("Temporal decimation applied: stride 2")
-            except Exception as exc:
-                logger.warning("Perforation encountered error (%s); proceeding with original RTL", exc)
-
-        # -------------------------------------------------------------
         # STEP 1: Cone Extraction
         # -------------------------------------------------------------
+        current_input_vlog = self.input_verilog
         logger.info("--- Step 1: RTLIL Relaxability Analysis & Cone Extraction ---")
         submod_vlog = self.output_dir / "extracted_cone.v"
         top_shell_vlog = self.output_dir / "top_shell.v"
@@ -425,8 +385,7 @@ def main() -> None:
     parser.add_argument("-s", "--samples", type=int, default=300, help="Simulation samples")
     parser.add_argument("-n", "--verify-cycles", type=int, default=300, help="Miter verification clock cycles")
     parser.add_argument("--decompose", action="store_true", help="Decompose coarse-grain arithmetic cells into bit-level primitives")
-    parser.add_argument("-a", "--method", default="auto", choices=["auto", "pyals", "als", "inouts", "probprun", "decisiontree", "dt", "decision_tree", "carry_prune", "lut_prune", "loa", "bam", "ppt", "perforate", "spatial"], help="Logic approximation backend algorithm")
-    parser.add_argument("--perforate", default="none", choices=["none", "auto", "spatial", "sequential", "temporal"], help="Hardware loop/tap perforation mode")
+    parser.add_argument("-a", "--method", default="auto", choices=["auto", "pyals", "als", "inouts", "probprun", "decisiontree", "dt", "decision_tree", "carry_prune", "lut_prune", "loa", "bam", "ppt"], help="Logic approximation backend algorithm")
     parser.add_argument("-b", "--bound", type=float, default=None, help="Override target error bound")
     parser.add_argument("--no-trace", action="store_true", help="Disable realistic pipeline trace extraction")
     parser.add_argument("--stimulus-file", default=None, help="Top-level primary input trace stimulus file")
@@ -459,7 +418,6 @@ def main() -> None:
         fpga_family=args.fpga_family,
         fpga_device=args.fpga_device,
         fpga_nodsp=not args.allow_dsp,
-        perforate=args.perforate,
     )
     result = flow.run()
     print(json.dumps(result, indent=2))

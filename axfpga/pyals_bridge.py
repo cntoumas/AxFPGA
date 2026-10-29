@@ -94,21 +94,20 @@ class PyAlsBridge:
         inputs: Dict[str, Dict[str, Any]] = {}
         outputs: Dict[str, Dict[str, Any]] = {}
 
-        port_pat = re.compile(r"\b(input|output)\s+(wire\s+|reg\s+)?(signed\s+)?(\[[^\]]+\]\s+)?(\w+)")
+        port_pat = re.compile(r"\b(input|output)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^\]]+)\]\s*)?(\S+)")
         for line in content.splitlines():
             line = line.strip()
             m = port_pat.search(line)
             if m:
                 direction = m.group(1)
-                is_signed = bool(m.group(3))
-                width_str = m.group(4)
-                name = m.group(5)
+                width_str = m.group(2)
+                name = m.group(3).rstrip(";").strip()
                 width = 1
                 if width_str:
-                    w_m = re.match(r"\[(\d+):(\d+)\]", width_str.strip())
+                    w_m = re.match(r"\[?(\d+):(\d+)\]?", width_str.strip())
                     if w_m:
                         width = abs(int(w_m.group(1)) - int(w_m.group(2))) + 1
-                info = {"name": name, "width": width, "signed": is_signed}
+                info = {"name": name, "width": width, "signed": False}
                 if direction == "input":
                     inputs[name] = info
                 else:
@@ -233,7 +232,7 @@ class PyAlsBridge:
                     "replaced_luts": num_replaced,
                 })
 
-        # 3. Candidate: Zero/Pruning on lower-weight LUTs
+        # 3. Candidate: Zero/Pruning on lower-weight individual LUTs
         for i, match in enumerate(assign_matches[:min(len(assign_matches), 4)]):
             wire_name = match.group(1)
             width_bits = int(match.group(2))
@@ -250,6 +249,49 @@ class PyAlsBridge:
                 "distance": 1,
                 "replaced_luts": 1,
             })
+
+        # 4. Candidate: Cumulative pruning of lower-weight LUTs
+        cum_code = content
+        for k in range(1, min(len(assign_matches) + 1, 9)):
+            m = assign_matches[k - 1]
+            w_name = m.group(1)
+            w_bits = int(m.group(2))
+            inp_str = m.group(4)
+            z_hex = "0" * max(1, w_bits // 4)
+            rep_z = f"assign {w_name} = {w_bits}'h{z_hex} >> {{{inp_str}}};"
+            cum_code = cum_code.replace(m.group(0), rep_z)
+            cand_cum_v = self.work_dir / f"cand_pyals_cum_prune_{k}.v"
+            cand_cum_v.write_text(cum_code, encoding="utf-8")
+            candidates.append({
+                "name": f"pyALS_cum_prune_{k}",
+                "path": cand_cum_v,
+                "strategy": "pyals",
+                "distance": k,
+                "replaced_luts": k,
+            })
+
+        # 5. Candidate: Output bit-level pruning for multi-bit relaxed outputs
+        rel_out = iface.get("relaxed_output")
+        if rel_out:
+            for k in [1, 2, 3, 4, 6, 8]:
+                out_cand = content
+                replaced = 0
+                for b in range(k):
+                    pat = rf"assign\s+{re.escape(rel_out)}\s*\[{b}\]\s*=[^;]+;"
+                    if re.search(pat, out_cand):
+                        rel_out_str = f"{rel_out} " if rel_out.startswith("\\") and not rel_out.endswith(" ") else rel_out
+                        out_cand = re.sub(pat, lambda _, b=b, r=rel_out_str: f"assign {r}[{b}] = 1'b0;", out_cand)
+                        replaced += 1
+                if replaced > 0:
+                    cand_out_v = self.work_dir / f"cand_pyals_out_bits_{k}.v"
+                    cand_out_v.write_text(out_cand, encoding="utf-8")
+                    candidates.append({
+                        "name": f"pyALS_out_prune_{k}b",
+                        "path": cand_out_v,
+                        "strategy": "pyals",
+                        "distance": k,
+                        "replaced_luts": replaced,
+                    })
 
         return candidates
 
@@ -314,13 +356,19 @@ class PyAlsBridge:
                     "carry4": cand_c4,
                 })
 
-        if valid_mutants:
-            valid_mutants.sort(key=lambda m: (m["estimated_lcs"], m["error"]))
-            champ = valid_mutants[0]
+        beneficial_mutants = [m for m in valid_mutants if m["estimated_lcs"] < base_lcs or m["total_luts"] < base_lut]
+        if beneficial_mutants:
+            beneficial_mutants.sort(key=lambda m: (m["estimated_lcs"], m["total_luts"], m["error"]))
+            champ = beneficial_mutants[0]
             champ_lcs = champ["estimated_lcs"]
             savings_pct = round(((base_lcs - champ_lcs) / base_lcs) * 100.0, 2) if base_lcs > 0 else 0.0
             logger.info("pyALS CHAMPION: %s | LCs %d -> %d (%.1f%% savings) | %s=%.2f",
                         champ["name"], base_lcs, champ_lcs, savings_pct, metric, champ["error"])
+        elif valid_mutants:
+            valid_mutants.sort(key=lambda m: (m["total_luts"], m["estimated_lcs"], m["error"]))
+            champ = valid_mutants[0]
+            champ_lcs = champ["estimated_lcs"]
+            savings_pct = round(((base_lcs - champ_lcs) / base_lcs) * 100.0, 2) if base_lcs > 0 else 0.0
         else:
             logger.warning("No pyALS candidate strictly met bound %s=%.2f; falling back to exact baseline", metric, bound)
             champ = {

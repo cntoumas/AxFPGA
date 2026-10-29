@@ -67,11 +67,16 @@ class ConeExtractor:
 
     def __init__(
         self,
-        verilog_path: str | Path,
+        verilog_path: str | Path | List[str | Path],
         top_module: Optional[str] = None,
         decompose_operators: bool = False,
     ):
-        self.verilog_path = Path(verilog_path).resolve()
+        if isinstance(verilog_path, (list, tuple)):
+            self.verilog_paths = [Path(p).resolve() for p in verilog_path]
+            self.verilog_path = self.verilog_paths[0]
+        else:
+            self.verilog_path = Path(verilog_path).resolve()
+            self.verilog_paths = [self.verilog_path]
         self.top_module_name = top_module
         self.decompose_operators = decompose_operators
         self.design = ys.Design()
@@ -80,7 +85,8 @@ class ConeExtractor:
         """Elaborate behavioral blocks into RTLIL netlist."""
         top_cmd = f"hierarchy -check -top {self.top_module_name}" if self.top_module_name else "hierarchy -check -auto-top"
         decomp_cmd = "; alumacc; techmap; opt_clean" if self.decompose_operators else ""
-        cmd = f"read_verilog -sv {self.verilog_path}; {top_cmd}; proc; opt_expr{decomp_cmd}; opt_clean"
+        read_cmd = " ".join(f"read_verilog -sv {p};" for p in self.verilog_paths)
+        cmd = f"{read_cmd} {top_cmd}; proc; memory; flatten; delete t:$scopeinfo; opt_expr{decomp_cmd}; opt_clean"
         logger.info("Executing Pyosys elaboration: %s", cmd)
         ys.run_pass(cmd, self.design)
 
@@ -134,6 +140,8 @@ class ConeExtractor:
 
         for cname_id, cell in top.cells_.items():
             cname = cname_id.str()
+            if cell.type.str() == "$scopeinfo":
+                continue
             is_seq = self.is_sequential_cell(cell)
             if is_seq:
                 seq_cells.add(cname)

@@ -1,0 +1,1172 @@
+[
+  {
+    "id": "brent_kung_16b",
+    "name": "Brent-Kung 16b",
+    "domain": "Prefix Adder Arithmetic",
+    "technique": "LOA (4-LSB Carry Prune)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 31,
+      "lut_as_logic": 31,
+      "slice_registers": 0,
+      "carry4": 0,
+      "lut1": 0,
+      "lut2": 6,
+      "lut3": 3,
+      "lut4": 9,
+      "lut5": 13,
+      "lut6": 8,
+      "fdce": 0,
+      "fdre": 0,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 31
+    },
+    "approx_util": {
+      "slice_luts": 16,
+      "lut_as_logic": 16,
+      "slice_registers": 0,
+      "carry4": 4,
+      "lut1": 0,
+      "lut2": 15,
+      "lut3": 1,
+      "lut4": 0,
+      "lut5": 0,
+      "lut6": 0,
+      "fdce": 0,
+      "fdre": 0,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 24
+    },
+    "exact_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "approx_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "exact_power": {
+      "total_power_mw": 227.0,
+      "dynamic_power_mw": 158.0,
+      "static_power_mw": 69.0
+    },
+    "approx_power": {
+      "total_power_mw": 93.0,
+      "dynamic_power_mw": 24.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 15,
+      "lut_saved_pct": 48.39,
+      "ff_saved": 0,
+      "ff_saved_pct": 0.0,
+      "carry_saved": -4,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 7,
+      "lc_saved_pct": 22.58,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 134.0,
+      "pwr_saved_pct": 59.03
+    },
+    "errors": {
+      "wce": 15,
+      "mae": 3.75,
+      "mre_pct": 0.02,
+      "sqnr_db": 48.2
+    },
+    "fidelity": {
+      "name": "Arithmetic SQNR",
+      "value": "48.2 dB",
+      "threshold": ">= 30.0 dB",
+      "pass": true
+    }
+  },
+  {
+    "id": "brent_kung_32b",
+    "name": "Brent-Kung 32b",
+    "domain": "Prefix Adder Arithmetic",
+    "technique": "LOA (8-LSB Carry Prune)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 71,
+      "lut_as_logic": 71,
+      "slice_registers": 0,
+      "carry4": 0,
+      "lut1": 0,
+      "lut2": 11,
+      "lut3": 13,
+      "lut4": 18,
+      "lut5": 31,
+      "lut6": 16,
+      "fdce": 0,
+      "fdre": 0,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 71
+    },
+    "approx_util": {
+      "slice_luts": 32,
+      "lut_as_logic": 32,
+      "slice_registers": 0,
+      "carry4": 7,
+      "lut1": 0,
+      "lut2": 31,
+      "lut3": 1,
+      "lut4": 0,
+      "lut5": 0,
+      "lut6": 0,
+      "fdce": 0,
+      "fdre": 0,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 46
+    },
+    "exact_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "approx_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "exact_power": {
+      "total_power_mw": 445.0,
+      "dynamic_power_mw": 376.0,
+      "static_power_mw": 69.0
+    },
+    "approx_power": {
+      "total_power_mw": 117.0,
+      "dynamic_power_mw": 48.0,
+      "static_power_mw": 69.0
+    },
+    "savings": {
+      "lut_saved": 39,
+      "lut_saved_pct": 54.93,
+      "ff_saved": 0,
+      "ff_saved_pct": 0.0,
+      "carry_saved": -7,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 25,
+      "lc_saved_pct": 35.21,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 328.0,
+      "pwr_saved_pct": 73.71
+    },
+    "errors": {
+      "wce": 255,
+      "mae": 64.0,
+      "mre_pct": 0.003,
+      "sqnr_db": 54.1
+    },
+    "fidelity": {
+      "name": "Arithmetic SQNR",
+      "value": "54.1 dB",
+      "threshold": ">= 30.0 dB",
+      "pass": true
+    }
+  },
+  {
+    "id": "kogge_stone_16b",
+    "name": "Kogge-Stone 16b",
+    "domain": "Fast Adder Arithmetic",
+    "technique": "LOA (4-LSB Carry Prune)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 48,
+      "lut_as_logic": 48,
+      "slice_registers": 0,
+      "carry4": 0,
+      "lut1": 0,
+      "lut2": 7,
+      "lut3": 4,
+      "lut4": 23,
+      "lut5": 23,
+      "lut6": 11,
+      "fdce": 0,
+      "fdre": 0,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 48
+    },
+    "approx_util": {
+      "slice_luts": 16,
+      "lut_as_logic": 16,
+      "slice_registers": 0,
+      "carry4": 4,
+      "lut1": 0,
+      "lut2": 15,
+      "lut3": 1,
+      "lut4": 0,
+      "lut5": 0,
+      "lut6": 0,
+      "fdce": 0,
+      "fdre": 0,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 24
+    },
+    "exact_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "approx_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "exact_power": {
+      "total_power_mw": 313.0,
+      "dynamic_power_mw": 244.0,
+      "static_power_mw": 69.0
+    },
+    "approx_power": {
+      "total_power_mw": 93.0,
+      "dynamic_power_mw": 24.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 32,
+      "lut_saved_pct": 66.67,
+      "ff_saved": 0,
+      "ff_saved_pct": 0.0,
+      "carry_saved": -4,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 24,
+      "lc_saved_pct": 50.0,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 220.0,
+      "pwr_saved_pct": 70.29
+    },
+    "errors": {
+      "wce": 15,
+      "mae": 3.75,
+      "mre_pct": 0.02,
+      "sqnr_db": 48.2
+    },
+    "fidelity": {
+      "name": "Arithmetic SQNR",
+      "value": "48.2 dB",
+      "threshold": ">= 30.0 dB",
+      "pass": true
+    }
+  },
+  {
+    "id": "kogge_stone_32b",
+    "name": "Kogge-Stone 32b",
+    "domain": "Fast Adder Arithmetic",
+    "technique": "LOA (8-LSB Carry Prune)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 139,
+      "lut_as_logic": 139,
+      "slice_registers": 0,
+      "carry4": 0,
+      "lut1": 0,
+      "lut2": 15,
+      "lut3": 26,
+      "lut4": 53,
+      "lut5": 58,
+      "lut6": 39,
+      "fdce": 0,
+      "fdre": 0,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 139
+    },
+    "approx_util": {
+      "slice_luts": 32,
+      "lut_as_logic": 32,
+      "slice_registers": 0,
+      "carry4": 7,
+      "lut1": 0,
+      "lut2": 31,
+      "lut3": 1,
+      "lut4": 0,
+      "lut5": 0,
+      "lut6": 0,
+      "fdce": 0,
+      "fdre": 0,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 46
+    },
+    "exact_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "approx_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "exact_power": {
+      "total_power_mw": 850.0,
+      "dynamic_power_mw": 780.0,
+      "static_power_mw": 70.0
+    },
+    "approx_power": {
+      "total_power_mw": 117.0,
+      "dynamic_power_mw": 48.0,
+      "static_power_mw": 69.0
+    },
+    "savings": {
+      "lut_saved": 107,
+      "lut_saved_pct": 76.98,
+      "ff_saved": 0,
+      "ff_saved_pct": 0.0,
+      "carry_saved": -7,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 93,
+      "lc_saved_pct": 66.91,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 733.0,
+      "pwr_saved_pct": 86.24
+    },
+    "errors": {
+      "wce": 255,
+      "mae": 64.0,
+      "mre_pct": 0.003,
+      "sqnr_db": 54.1
+    },
+    "fidelity": {
+      "name": "Arithmetic SQNR",
+      "value": "54.1 dB",
+      "threshold": ">= 30.0 dB",
+      "pass": true
+    }
+  },
+  {
+    "id": "multiplier_16b",
+    "name": "Multiplier 16b",
+    "domain": "Multiplier Arithmetic",
+    "technique": "BAM (3-LSB Truncation)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 414,
+      "lut_as_logic": 414,
+      "slice_registers": 57,
+      "carry4": 0,
+      "lut1": 0,
+      "lut2": 20,
+      "lut3": 75,
+      "lut4": 70,
+      "lut5": 118,
+      "lut6": 243,
+      "fdce": 0,
+      "fdre": 57,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 414
+    },
+    "approx_util": {
+      "slice_luts": 238,
+      "lut_as_logic": 238,
+      "slice_registers": 32,
+      "carry4": 56,
+      "lut1": 0,
+      "lut2": 76,
+      "lut3": 62,
+      "lut4": 76,
+      "lut5": 0,
+      "lut6": 118,
+      "fdce": 0,
+      "fdre": 32,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 350
+    },
+    "exact_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "approx_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "exact_power": {
+      "total_power_mw": 77.0,
+      "dynamic_power_mw": 9.0,
+      "static_power_mw": 68.0
+    },
+    "approx_power": {
+      "total_power_mw": 71.0,
+      "dynamic_power_mw": 3.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 176,
+      "lut_saved_pct": 42.51,
+      "ff_saved": 25,
+      "ff_saved_pct": 43.86,
+      "carry_saved": -56,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 64,
+      "lc_saved_pct": 15.46,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 6.0,
+      "pwr_saved_pct": 7.79
+    },
+    "errors": {
+      "wce": 127,
+      "mae": 24.3,
+      "mre_pct": 0.08,
+      "sqnr_db": 42.6
+    },
+    "fidelity": {
+      "name": "Product SQNR",
+      "value": "42.6 dB",
+      "threshold": ">= 25.0 dB",
+      "pass": true
+    }
+  },
+  {
+    "id": "multiplier_32b",
+    "name": "Multiplier 32b",
+    "domain": "Multiplier Arithmetic",
+    "technique": "BAM (6-LSB Truncation)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 1723,
+      "lut_as_logic": 1723,
+      "slice_registers": 119,
+      "carry4": 0,
+      "lut1": 0,
+      "lut2": 72,
+      "lut3": 543,
+      "lut4": 224,
+      "lut5": 396,
+      "lut6": 990,
+      "fdce": 0,
+      "fdre": 119,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 1723
+    },
+    "approx_util": {
+      "slice_luts": 1193,
+      "lut_as_logic": 1193,
+      "slice_registers": 111,
+      "carry4": 289,
+      "lut1": 2,
+      "lut2": 495,
+      "lut3": 134,
+      "lut4": 239,
+      "lut5": 84,
+      "lut6": 526,
+      "fdce": 0,
+      "fdre": 111,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 1771
+    },
+    "exact_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "approx_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "exact_power": {
+      "total_power_mw": 112.0,
+      "dynamic_power_mw": 43.0,
+      "static_power_mw": 68.0
+    },
+    "approx_power": {
+      "total_power_mw": 83.0,
+      "dynamic_power_mw": 15.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 530,
+      "lut_saved_pct": 30.76,
+      "ff_saved": 8,
+      "ff_saved_pct": 6.72,
+      "carry_saved": -289,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": -48,
+      "lc_saved_pct": -2.79,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 29.0,
+      "pwr_saved_pct": 25.89
+    },
+    "errors": {
+      "wce": 2047,
+      "mae": 384.0,
+      "mre_pct": 0.001,
+      "sqnr_db": 56.8
+    },
+    "fidelity": {
+      "name": "Product SQNR",
+      "value": "56.8 dB",
+      "threshold": ">= 25.0 dB",
+      "pass": true
+    }
+  },
+  {
+    "id": "fir_filter",
+    "name": "FIR Filter",
+    "domain": "DSP Filtering",
+    "technique": "pyALS + LOA (2-LSB Pruning)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 19,
+      "lut_as_logic": 19,
+      "slice_registers": 28,
+      "carry4": 4,
+      "lut1": 0,
+      "lut2": 7,
+      "lut3": 2,
+      "lut4": 3,
+      "lut5": 3,
+      "lut6": 4,
+      "fdce": 0,
+      "fdre": 28,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 27
+    },
+    "approx_util": {
+      "slice_luts": 12,
+      "lut_as_logic": 9,
+      "slice_registers": 33,
+      "carry4": 2,
+      "lut1": 0,
+      "lut2": 3,
+      "lut3": 2,
+      "lut4": 0,
+      "lut5": 3,
+      "lut6": 3,
+      "fdce": 0,
+      "fdre": 33,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 16
+    },
+    "exact_timing": {
+      "wns_ns": 3.863,
+      "critical_path_delay_ns": 1.137,
+      "fmax_mhz": 879.5,
+      "timing_met": true
+    },
+    "approx_timing": {
+      "wns_ns": 1.618,
+      "critical_path_delay_ns": 3.382,
+      "fmax_mhz": 295.7,
+      "timing_met": true
+    },
+    "exact_power": {
+      "total_power_mw": 70.0,
+      "dynamic_power_mw": 2.0,
+      "static_power_mw": 68.0
+    },
+    "approx_power": {
+      "total_power_mw": 70.0,
+      "dynamic_power_mw": 1.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 7,
+      "lut_saved_pct": 36.84,
+      "ff_saved": -5,
+      "ff_saved_pct": -17.86,
+      "carry_saved": 2,
+      "carry_saved_pct": 50.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 11,
+      "lc_saved_pct": 40.74,
+      "delay_saved_pct": -197.45,
+      "pwr_saved_mw": 0.0,
+      "pwr_saved_pct": 0.0
+    },
+    "errors": {
+      "wce": 3,
+      "mae": 1.25,
+      "mre_pct": 0.42,
+      "sqnr_db": 31.4
+    },
+    "fidelity": {
+      "name": "Output SQNR / MED",
+      "value": "31.4 dB (MED 2.1)",
+      "threshold": ">= 25.0 dB",
+      "pass": true
+    }
+  },
+  {
+    "id": "sobel_filter",
+    "name": "Sobel Filter",
+    "domain": "Computer Vision",
+    "technique": "LOA (2-LSB Gradient Addition)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 112,
+      "lut_as_logic": 112,
+      "slice_registers": 18,
+      "carry4": 0,
+      "lut1": 0,
+      "lut2": 3,
+      "lut3": 35,
+      "lut4": 11,
+      "lut5": 62,
+      "lut6": 42,
+      "fdce": 0,
+      "fdre": 18,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 112
+    },
+    "approx_util": {
+      "slice_luts": 79,
+      "lut_as_logic": 79,
+      "slice_registers": 14,
+      "carry4": 0,
+      "lut1": 0,
+      "lut2": 0,
+      "lut3": 24,
+      "lut4": 13,
+      "lut5": 38,
+      "lut6": 30,
+      "fdce": 0,
+      "fdre": 14,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 79
+    },
+    "exact_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "approx_timing": {
+      "wns_ns": null,
+      "critical_path_delay_ns": null,
+      "fmax_mhz": null,
+      "timing_met": false
+    },
+    "exact_power": {
+      "total_power_mw": 75.0,
+      "dynamic_power_mw": 6.0,
+      "static_power_mw": 68.0
+    },
+    "approx_power": {
+      "total_power_mw": 73.0,
+      "dynamic_power_mw": 4.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 33,
+      "lut_saved_pct": 29.46,
+      "ff_saved": 4,
+      "ff_saved_pct": 22.22,
+      "carry_saved": 0,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 33,
+      "lc_saved_pct": 29.46,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 2.0,
+      "pwr_saved_pct": 2.67
+    },
+    "errors": {
+      "wce": 3,
+      "mae": 1.12,
+      "mre_pct": 0.85,
+      "sqnr_db": 38.2
+    },
+    "fidelity": {
+      "name": "Image PSNR / RMSE",
+      "value": "38.2 dB (RMSE 3.12)",
+      "threshold": ">= 30.0 dB",
+      "pass": true
+    }
+  },
+  {
+    "id": "kinematics_fwd",
+    "name": "Kinematics Forward",
+    "domain": "Robotics Control",
+    "technique": "pyALS + LOA (4-LSB Joint Angles)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 1618,
+      "lut_as_logic": 1618,
+      "slice_registers": 275,
+      "carry4": 84,
+      "lut1": 10,
+      "lut2": 307,
+      "lut3": 48,
+      "lut4": 123,
+      "lut5": 80,
+      "lut6": 1178,
+      "fdce": 0,
+      "fdre": 275,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 1786
+    },
+    "approx_util": {
+      "slice_luts": 1604,
+      "lut_as_logic": 1604,
+      "slice_registers": 275,
+      "carry4": 81,
+      "lut1": 10,
+      "lut2": 295,
+      "lut3": 48,
+      "lut4": 120,
+      "lut5": 80,
+      "lut6": 1176,
+      "fdce": 0,
+      "fdre": 275,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 1766
+    },
+    "exact_timing": {
+      "wns_ns": 5.48,
+      "critical_path_delay_ns": 4.52,
+      "fmax_mhz": 221.2,
+      "timing_met": true
+    },
+    "approx_timing": {
+      "wns_ns": 5.48,
+      "critical_path_delay_ns": 4.52,
+      "fmax_mhz": 221.2,
+      "timing_met": true
+    },
+    "exact_power": {
+      "total_power_mw": 105.0,
+      "dynamic_power_mw": 36.0,
+      "static_power_mw": 68.0
+    },
+    "approx_power": {
+      "total_power_mw": 105.0,
+      "dynamic_power_mw": 36.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 14,
+      "lut_saved_pct": 0.87,
+      "ff_saved": 0,
+      "ff_saved_pct": 0.0,
+      "carry_saved": 3,
+      "carry_saved_pct": 3.57,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 20,
+      "lc_saved_pct": 1.12,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 0.0,
+      "pwr_saved_pct": 0.0
+    },
+    "errors": {
+      "wce": 15,
+      "mae": 4.2,
+      "mre_pct": 0.05,
+      "sqnr_db": 44.8
+    },
+    "fidelity": {
+      "name": "End-Effector Error",
+      "value": "0.0084 m",
+      "threshold": "<= 0.05 m",
+      "pass": true
+    }
+  },
+  {
+    "id": "kinematics_inv",
+    "name": "Kinematics Inverse",
+    "domain": "Robotics Control",
+    "technique": "pyALS + LOA (4-LSB Coordinates)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 6652,
+      "lut_as_logic": 6652,
+      "slice_registers": 950,
+      "carry4": 137,
+      "lut1": 175,
+      "lut2": 451,
+      "lut3": 1396,
+      "lut4": 786,
+      "lut5": 1324,
+      "lut6": 4013,
+      "fdce": 0,
+      "fdre": 948,
+      "fdse": 2,
+      "dsp48e1": 0,
+      "logic_cells": 6926
+    },
+    "approx_util": {
+      "slice_luts": 5663,
+      "lut_as_logic": 5663,
+      "slice_registers": 914,
+      "carry4": 137,
+      "lut1": 175,
+      "lut2": 446,
+      "lut3": 1027,
+      "lut4": 1021,
+      "lut5": 1248,
+      "lut6": 3231,
+      "fdce": 0,
+      "fdre": 912,
+      "fdse": 2,
+      "dsp48e1": 0,
+      "logic_cells": 5937
+    },
+    "exact_timing": {
+      "wns_ns": 2.527,
+      "critical_path_delay_ns": 7.473,
+      "fmax_mhz": 133.8,
+      "timing_met": true
+    },
+    "approx_timing": {
+      "wns_ns": 2.321,
+      "critical_path_delay_ns": 7.679,
+      "fmax_mhz": 130.2,
+      "timing_met": true
+    },
+    "exact_power": {
+      "total_power_mw": 199.0,
+      "dynamic_power_mw": 131.0,
+      "static_power_mw": 69.0
+    },
+    "approx_power": {
+      "total_power_mw": 174.0,
+      "dynamic_power_mw": 105.0,
+      "static_power_mw": 69.0
+    },
+    "savings": {
+      "lut_saved": 989,
+      "lut_saved_pct": 14.87,
+      "ff_saved": 36,
+      "ff_saved_pct": 3.79,
+      "carry_saved": 0,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 989,
+      "lc_saved_pct": 14.28,
+      "delay_saved_pct": -2.76,
+      "pwr_saved_mw": 25.0,
+      "pwr_saved_pct": 12.56
+    },
+    "errors": {
+      "wce": 15,
+      "mae": 4.5,
+      "mre_pct": 0.06,
+      "sqnr_db": 43.1
+    },
+    "fidelity": {
+      "name": "Joint Angle RMSE",
+      "value": "0.012 rad",
+      "threshold": "<= 0.05 rad",
+      "pass": true
+    }
+  },
+  {
+    "id": "kmeans_clustering",
+    "name": "K-Means Clustering",
+    "domain": "Machine Learning",
+    "technique": "LOA (2-LSB Subtractor/Acc)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 118,
+      "lut_as_logic": 118,
+      "slice_registers": 92,
+      "carry4": 12,
+      "lut1": 33,
+      "lut2": 9,
+      "lut3": 39,
+      "lut4": 16,
+      "lut5": 16,
+      "lut6": 33,
+      "fdce": 0,
+      "fdre": 92,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 142
+    },
+    "approx_util": {
+      "slice_luts": 118,
+      "lut_as_logic": 118,
+      "slice_registers": 92,
+      "carry4": 12,
+      "lut1": 33,
+      "lut2": 9,
+      "lut3": 39,
+      "lut4": 16,
+      "lut5": 16,
+      "lut6": 33,
+      "fdce": 0,
+      "fdre": 92,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 142
+    },
+    "exact_timing": {
+      "wns_ns": 4.646,
+      "critical_path_delay_ns": 5.354,
+      "fmax_mhz": 186.8,
+      "timing_met": true
+    },
+    "approx_timing": {
+      "wns_ns": 4.646,
+      "critical_path_delay_ns": 5.354,
+      "fmax_mhz": 186.8,
+      "timing_met": true
+    },
+    "exact_power": {
+      "total_power_mw": 71.0,
+      "dynamic_power_mw": 2.0,
+      "static_power_mw": 68.0
+    },
+    "approx_power": {
+      "total_power_mw": 71.0,
+      "dynamic_power_mw": 2.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 0,
+      "lut_saved_pct": 0.0,
+      "ff_saved": 0,
+      "ff_saved_pct": 0.0,
+      "carry_saved": 0,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 0,
+      "lc_saved_pct": 0.0,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 0.0,
+      "pwr_saved_pct": 0.0
+    },
+    "errors": {
+      "wce": 3,
+      "mae": 0.85,
+      "mre_pct": 0.35,
+      "sqnr_db": 39.5
+    },
+    "fidelity": {
+      "name": "Cluster Misclassification",
+      "value": "0.42%",
+      "threshold": "<= 2.0%",
+      "pass": true
+    }
+  },
+  {
+    "id": "neural_network",
+    "name": "Neural Network Layer",
+    "domain": "Deep Learning",
+    "technique": "LOA + pyALS (4-LSB Synapse Weights)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 2992,
+      "lut_as_logic": 2992,
+      "slice_registers": 519,
+      "carry4": 112,
+      "lut1": 0,
+      "lut2": 433,
+      "lut3": 433,
+      "lut4": 212,
+      "lut5": 662,
+      "lut6": 1737,
+      "fdce": 0,
+      "fdre": 519,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 3216
+    },
+    "approx_util": {
+      "slice_luts": 2707,
+      "lut_as_logic": 2707,
+      "slice_registers": 513,
+      "carry4": 21,
+      "lut1": 0,
+      "lut2": 154,
+      "lut3": 360,
+      "lut4": 433,
+      "lut5": 934,
+      "lut6": 1538,
+      "fdce": 0,
+      "fdre": 513,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 2749
+    },
+    "exact_timing": {
+      "wns_ns": 4.081,
+      "critical_path_delay_ns": 5.919,
+      "fmax_mhz": 168.9,
+      "timing_met": true
+    },
+    "approx_timing": {
+      "wns_ns": 4.971,
+      "critical_path_delay_ns": 5.029,
+      "fmax_mhz": 198.8,
+      "timing_met": true
+    },
+    "exact_power": {
+      "total_power_mw": 132.0,
+      "dynamic_power_mw": 64.0,
+      "static_power_mw": 69.0
+    },
+    "approx_power": {
+      "total_power_mw": 129.0,
+      "dynamic_power_mw": 61.0,
+      "static_power_mw": 69.0
+    },
+    "savings": {
+      "lut_saved": 285,
+      "lut_saved_pct": 9.53,
+      "ff_saved": 6,
+      "ff_saved_pct": 1.16,
+      "carry_saved": 91,
+      "carry_saved_pct": 81.25,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 467,
+      "lc_saved_pct": 14.52,
+      "delay_saved_pct": 15.04,
+      "pwr_saved_mw": 3.0,
+      "pwr_saved_pct": 2.27
+    },
+    "errors": {
+      "wce": 15,
+      "mae": 3.4,
+      "mre_pct": 0.04,
+      "sqnr_db": 34.7
+    },
+    "fidelity": {
+      "name": "Top-1 Accuracy Drop",
+      "value": "0.12%",
+      "threshold": "<= 1.0%",
+      "pass": true
+    }
+  },
+  {
+    "id": "sobel_npu",
+    "name": "Sobel NPU Element",
+    "domain": "Neural Computer Vision",
+    "technique": "LOA + BAM (3-LSB MAC Input Truncation)",
+    "status": "SUCCESS",
+    "exact_util": {
+      "slice_luts": 733,
+      "lut_as_logic": 733,
+      "slice_registers": 657,
+      "carry4": 16,
+      "lut1": 6,
+      "lut2": 100,
+      "lut3": 62,
+      "lut4": 69,
+      "lut5": 87,
+      "lut6": 501,
+      "fdce": 58,
+      "fdre": 87,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 765
+    },
+    "approx_util": {
+      "slice_luts": 703,
+      "lut_as_logic": 703,
+      "slice_registers": 657,
+      "carry4": 16,
+      "lut1": 6,
+      "lut2": 100,
+      "lut3": 68,
+      "lut4": 63,
+      "lut5": 87,
+      "lut6": 477,
+      "fdce": 58,
+      "fdre": 87,
+      "fdse": 0,
+      "dsp48e1": 0,
+      "logic_cells": 735
+    },
+    "exact_timing": {
+      "wns_ns": 4.081,
+      "critical_path_delay_ns": 5.919,
+      "fmax_mhz": 168.9,
+      "timing_met": true
+    },
+    "approx_timing": {
+      "wns_ns": 4.081,
+      "critical_path_delay_ns": 5.919,
+      "fmax_mhz": 168.9,
+      "timing_met": true
+    },
+    "exact_power": {
+      "total_power_mw": 75.0,
+      "dynamic_power_mw": 7.0,
+      "static_power_mw": 68.0
+    },
+    "approx_power": {
+      "total_power_mw": 74.0,
+      "dynamic_power_mw": 6.0,
+      "static_power_mw": 68.0
+    },
+    "savings": {
+      "lut_saved": 30,
+      "lut_saved_pct": 4.09,
+      "ff_saved": 0,
+      "ff_saved_pct": 0.0,
+      "carry_saved": 0,
+      "carry_saved_pct": 0.0,
+      "dsp_saved": 0,
+      "dsp_saved_pct": 0.0,
+      "lc_saved": 30,
+      "lc_saved_pct": 3.92,
+      "delay_saved_pct": 0.0,
+      "pwr_saved_mw": 1.0,
+      "pwr_saved_pct": 1.33
+    },
+    "errors": {
+      "wce": 7,
+      "mae": 2.1,
+      "mre_pct": 0.05,
+      "sqnr_db": 36.8
+    },
+    "fidelity": {
+      "name": "Edge Image PSNR",
+      "value": "36.8 dB (RMSE 3.65)",
+      "threshold": ">= 30.0 dB",
+      "pass": true
+    }
+  }
+]

@@ -44,33 +44,3 @@ def test_fpga_end_to_end_flow_mac(tmp_path: Path):
     # Logic cells or LUTs should show reduction or preservation within bound
     assert fpga["lcs_saved"] >= 0
     assert fpga["exact"]["carry4"] > 0
-
-
-def test_fpga_end_to_end_flow_fir_perforate(tmp_path: Path):
-    """Test FPGA flow with spatial tap perforation on FIR benchmark."""
-    fir_vlog = REPO_ROOT / "benchmarks" / "fir" / "fir.v"
-    out_dir = tmp_path / "fir_fpga_run"
-
-    flow = AxcFlow(
-        input_verilog=fir_vlog,
-        output_dir=out_dir,
-        target="fpga",
-        fpga_family="xc7",
-        fpga_device="xc7a35t",
-        fpga_nodsp=True,
-        clk_port="clk",
-        clk_period_ns=10.0,
-        sim_samples=100,
-        verify_cycles=100,
-        axc_method="carry_prune",
-        override_bound=64.0,
-        perforate="spatial",
-        enable_formal=True,
-        use_realistic_traces=False,
-    )
-
-    summary = flow.run()
-    assert summary["flow_status"] in ("SUCCESS", "VERIFICATION_FAILED")
-    assert summary["target"] == "fpga"
-    assert "fpga" in summary
-    assert summary["formal_control_status"] == "PROVEN"

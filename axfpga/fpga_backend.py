@@ -15,6 +15,7 @@ import argparse
 import json
 import logging
 import os
+import random
 import re
 import shutil
 import subprocess
@@ -70,22 +71,21 @@ class FpgaBackend:
         outputs: Dict[str, Dict[str, Any]] = {}
 
         # Parse port declarations (supports both ANSI header and non-ANSI body declarations)
-        port_pat = re.compile(r"\b(input|output)\s+(wire\s+|reg\s+)?(signed\s+)?(\[[^\]]+\]\s+)?(\w+)")
+        port_pat = re.compile(r"\b(input|output)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^\]]+)\]\s*)?(\S+)")
         for line in content.splitlines():
             line = line.strip()
             m = port_pat.search(line)
             if m:
                 direction = m.group(1)
-                is_signed = bool(m.group(3))
-                width_str = m.group(4)
-                name = m.group(5)
+                width_str = m.group(2)
+                name = m.group(3).rstrip(";").strip()
                 width = 1
                 if width_str:
-                    w_m = re.match(r"\[(\d+):(\d+)\]", width_str.strip())
+                    w_m = re.match(r"\[?(\d+):(\d+)\]?", width_str.strip())
                     if w_m:
                         width = abs(int(w_m.group(1)) - int(w_m.group(2))) + 1
 
-                info = {"name": name, "width": width, "signed": is_signed}
+                info = {"name": name, "width": width, "signed": False}
                 if direction == "input":
                     inputs[name] = info
                 else:
@@ -133,7 +133,7 @@ class FpgaBackend:
             return stim_hex
 
         # Generate synthetic stimulus vectors
-        rng = np.random.default_rng(42)
+        py_rnd = random.Random(42)
         lines = []
         input_names = list(iface["inputs"].keys())
         lines.append("# " + " ".join(input_names))
@@ -144,10 +144,10 @@ class FpgaBackend:
                 info = iface["inputs"][name]
                 w = info["width"]
                 if w == 1:
-                    val = int(rng.choice([0, 1], p=[0.2, 0.8]))
+                    val = py_rnd.choice([0, 1])
                 else:
                     max_val = (1 << w) - 1
-                    val = int(rng.integers(0, max_val + 1))
+                    val = py_rnd.randint(0, max_val)
                 vec_parts.append(f"{val:x}")
             lines.append(" ".join(vec_parts))
 
@@ -188,27 +188,30 @@ class FpgaBackend:
 
         for name, info in inputs.items():
             w = info["width"]
-            inp_decls.append(f"  reg [{w-1}:0] in_{name};")
-            inst_exact_conns.append(f".{name}(in_{name})")
-            inst_approx_conns.append(f".{name}(in_{name})")
-            read_conns.append(f"in_{name}")
+            clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name.lstrip("\\"))
+            inp_decls.append(f"  reg [{w-1}:0] in_{clean_name};")
+            inst_exact_conns.append(f".{name} (in_{clean_name})")
+            inst_approx_conns.append(f".{name} (in_{clean_name})")
+            read_conns.append(f"in_{clean_name}")
 
         out_decls = []
         for name, info in outputs.items():
             w = info["width"]
-            out_decls.append(f"  wire [{w-1}:0] exact_{name};")
-            out_decls.append(f"  wire [{w-1}:0] approx_{name};")
-            inst_exact_conns.append(f".{name}(exact_{name})")
-            inst_approx_conns.append(f".{name}(approx_{name})")
+            clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name.lstrip("\\"))
+            out_decls.append(f"  wire [{w-1}:0] exact_{clean_name};")
+            out_decls.append(f"  wire [{w-1}:0] approx_{clean_name};")
+            inst_exact_conns.append(f".{name} (exact_{clean_name})")
+            inst_approx_conns.append(f".{name} (approx_{clean_name})")
 
         format_str = " ".join(["%x"] * len(inputs))
         read_args = ", ".join(read_conns)
 
+        rel_clean = re.sub(r"[^a-zA-Z0-9_]", "_", rel_out.lstrip("\\"))
         signed_calc = f"""
         if ({"1" if rel_signed else "0"}) begin
-          diff = $signed(exact_{rel_out}) - $signed(approx_{rel_out});
+          diff = $signed(exact_{rel_clean}) - $signed(approx_{rel_clean});
         end else begin
-          diff = exact_{rel_out} - approx_{rel_out};
+          diff = exact_{rel_clean} - approx_{rel_clean};
         end
 """
         tb_code = f"""`timescale 1ns/1ps
@@ -558,33 +561,6 @@ endmodule
 
         return candidates
 
-    def _generate_spatial_perforated_candidates(self, iface: Dict[str, Any], run_dir: Path) -> List[Dict[str, Any]]:
-        """Strategy: Spatial Tap Perforation for multi-operand adder trees."""
-        run_dir.mkdir(parents=True, exist_ok=True)
-        candidates: List[Dict[str, Any]] = []
-        try:
-            from axfpga.perforator import RtlLoopPerforator
-            perforator = RtlLoopPerforator(verilog_path=self.cone_vlog, work_dir=run_dir)
-            trees = perforator.detect_spatial_sum_trees()
-            for tree in trees:
-                max_drops = min(len(tree.terms) - 2, 4)
-                for k_drop in range(1, max_drops + 1):
-                    p_mut = perforator.perforate_spatial_tree(
-                        tree,
-                        num_taps_to_drop=k_drop,
-                        out_path=run_dir / f"cand_spatial_{tree.target_signal}_drop{k_drop}.v",
-                    )
-                    candidates.append({
-                        "name": f"SpatialDrop_{tree.target_signal}_k{k_drop}",
-                        "path": p_mut,
-                        "strategy": "spatial_perforate",
-                        "dropped_taps": k_drop,
-                    })
-        except Exception as exc:
-            logger.debug("Spatial tap perforation candidate generation failed: %s", exc)
-
-        return candidates
-
     def _generate_lut_pruned_candidates(self, iface: Dict[str, Any], run_dir: Path) -> List[Dict[str, Any]]:
         """Strategy 2: Map cone directly to 6-LUTs via Yosys & ABC, and prune LUT input cuts."""
         candidates: List[Dict[str, Any]] = []
@@ -859,11 +835,6 @@ endmodule
             logger.info("Generating Broken Array Multiplier (BAM) candidates...")
             bam_cands = self._generate_bam_candidates(iface, run_dir)
             all_candidates.extend(bam_cands)
-
-        if method.lower() in ("auto", "spatial", "perforate"):
-            logger.info("Generating Spatial Tap Perforation candidates...")
-            spatial_cands = self._generate_spatial_perforated_candidates(iface, run_dir)
-            all_candidates.extend(spatial_cands)
 
         if method.lower() in ("auto", "lut_prune", "probprun"):
             logger.info("Generating Native 6-LUT Cut Pruning candidates...")
