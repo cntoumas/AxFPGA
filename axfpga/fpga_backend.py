@@ -359,208 +359,6 @@ endmodule
 
         return candidates
 
-    def _split_addition_terms(self, expr: str) -> List[str]:
-        """Split expression into top-level additive terms."""
-        terms = []
-        depth = 0
-        current = []
-        for char in expr:
-            if char in "([{":
-                depth += 1
-                current.append(char)
-            elif char in ")]}":
-                depth -= 1
-                current.append(char)
-            elif char == "+" and depth == 0:
-                t = "".join(current).strip()
-                if t:
-                    terms.append(t)
-                current = []
-            else:
-                current.append(char)
-        t = "".join(current).strip()
-        if t:
-            terms.append(t)
-        return terms
-
-    def _generate_loa_candidates(self, iface: Dict[str, Any], run_dir: Path) -> List[Dict[str, Any]]:
-        """Strategy: Lower-Part OR Adder (LOA) with speculative carry."""
-        run_dir.mkdir(parents=True, exist_ok=True)
-        candidates: List[Dict[str, Any]] = []
-        raw_code = iface["raw_content"]
-        rel_out = iface["relaxed_output"]
-        rel_width = iface["outputs"][rel_out]["width"]
-        rel_signed = iface["outputs"][rel_out]["signed"]
-
-        # 1. Identify target addition inside the cone (either direct rel_out or internal adder feeding it)
-        add_target = rel_out
-        add_rhs = None
-        assign_m = re.search(rf"\bassign\s+{rel_out}\s*=\s*(.*?);", raw_code)
-        if assign_m and "+" in assign_m.group(1):
-            add_rhs = assign_m.group(1).strip()
-        else:
-            # Look for an internal assign with addition
-            internal_m = re.search(r"\bassign\s+([A-Za-z0-9_]+)\s*=\s*([^;]+?\+[^;]+?);", raw_code)
-            if internal_m:
-                add_target = internal_m.group(1)
-                add_rhs = internal_m.group(2).strip()
-
-        if not add_rhs:
-            return candidates
-
-        # Determine target bit width
-        target_w = rel_width
-        w_m = re.search(rf"\b(?:wire|reg)\s+(?:signed\s+)?\[(\d+):(\d+)\]\s+{add_target}\b", raw_code)
-        if w_m:
-            target_w = abs(int(w_m.group(1)) - int(w_m.group(2))) + 1
-        elif add_target in iface.get("outputs", {}):
-            target_w = iface["outputs"][add_target]["width"]
-
-        # Clean attributes like (* src = "..." *)
-        clean_rhs = re.sub(r"\(\*.*?\*\)", "", add_rhs).strip()
-        terms = self._split_addition_terms(clean_rhs)
-
-        if len(terms) < 2:
-            return candidates
-        elif len(terms) == 2:
-            opA, opB = terms[0].strip(), terms[1].strip()
-        else:
-            opA = " + ".join(terms[:-1])
-            opB = terms[-1].strip()
-
-        max_k = min(target_w - 1, 16)
-        for k in range(1, max_k + 1):
-            signed_kw = "$signed" if rel_signed else ""
-            loa_vlog = (
-                f"wire [{target_w-1}:0] _loa_opA = ({opA});\n"
-                f"  wire [{target_w-1}:0] _loa_opB = ({opB});\n"
-                f"  wire [{k-1}:0] _loa_lower = _loa_opA[{k-1}:0] | _loa_opB[{k-1}:0];\n"
-                f"  wire _loa_carry = _loa_opA[{k-1}] & _loa_opB[{k-1}];\n"
-                f"  wire [{target_w-k-1}:0] _loa_upper = {signed_kw}(_loa_opA[{target_w-1}:{k}]) + {signed_kw}(_loa_opB[{target_w-1}:{k}]) + _loa_carry;\n"
-                f"  assign {add_target} = {{_loa_upper, _loa_lower}};"
-            )
-
-            cand_code = re.sub(rf"\bassign\s+{add_target}\s*=\s*.*?;", loa_vlog, raw_code, count=1)
-            cand_p = run_dir / f"cand_loa_k{k}.v"
-            cand_p.write_text(cand_code, encoding="utf-8")
-            candidates.append({
-                "name": f"LOA_k{k}",
-                "path": cand_p,
-                "strategy": "loa",
-                "k": k,
-            })
-
-        return candidates
-
-    def _generate_bam_candidates(self, iface: Dict[str, Any], run_dir: Path) -> List[Dict[str, Any]]:
-        """Strategy: Broken Array Multiplier (BAM) & Partial Product Truncation."""
-        run_dir.mkdir(parents=True, exist_ok=True)
-        candidates: List[Dict[str, Any]] = []
-        raw_code = iface["raw_content"]
-        rel_out = iface["relaxed_output"]
-
-        mul_m = re.search(
-            r"(\$signed\s*\([^)]+\)|\([^\)]+\)|[A-Za-z_][A-Za-z0-9_]*)\s*\*\s*(?:\(\*.*?\*\)\s*)?(\$signed\s*\([^)]+\)|\([^\)]+\)|[A-Za-z_][A-Za-z0-9_]*|[0-9]+'s?d[0-9]+|[0-9]+'h[0-9a-fA-F]+)",
-            raw_code,
-        )
-        if not mul_m:
-            return candidates
-
-        opA_raw = mul_m.group(1).strip()
-        opB_raw = mul_m.group(2).strip()
-        opA_clean = re.sub(r"^\$signed\((.*)\)$", r"\1", opA_raw).strip("()")
-        opB_clean = re.sub(r"^\$signed\((.*)\)$", r"\1", opB_raw).strip("()")
-
-        wA = 8
-        wB = 8
-        if opA_clean in iface["inputs"]:
-            wA = iface["inputs"][opA_clean]["width"]
-        elif "[" in opA_clean:
-            s_m = re.search(r"\[(\d+):(\d+)\]", opA_clean)
-            if s_m:
-                wA = abs(int(s_m.group(1)) - int(s_m.group(2))) + 1
-        if opB_clean in iface["inputs"]:
-            wB = iface["inputs"][opB_clean]["width"]
-        elif "'d" in opB_clean or "'sd" in opB_clean or "'h" in opB_clean:
-            try:
-                wB = int(opB_clean.split("'")[0])
-            except Exception:
-                wB = 8
-        elif "[" in opB_clean:
-            s_m = re.search(r"\[(\d+):(\d+)\]", opB_clean)
-            if s_m:
-                wB = abs(int(s_m.group(1)) - int(s_m.group(2))) + 1
-
-        wP = wA + wB
-        is_signed = "$signed" in raw_code or "signed" in raw_code or iface["outputs"][rel_out]["signed"]
-
-        max_k = min(wA + wB - 2, 12)
-        k_steps = [k for k in [2, 3, 4, 5, 6, 8, 10] if k <= max_k]
-
-        for k in k_steps:
-            func_name = f"_axc_bam_mul_k{k}"
-            bias = 1 << (k - 1) if k > 0 else 0
-
-            if is_signed:
-                c_const = f"-{wP}'sd{1 << (wP - 1)} + {wP}'sd{1 << (wA - 1)} + {wP}'sd{1 << (wB - 1)} + {bias}"
-                func_code = f"""
-    function signed [{wP-1}:0] {func_name};
-        input [{wA-1}:0] a_in;
-        input [{wB-1}:0] b_in;
-        integer i, j;
-        reg signed [{wP-1}:0] acc;
-        begin
-            acc = {c_const};
-            for (i = 0; i < {wA-1}; i = i + 1) begin
-                for (j = 0; j < {wB-1}; j = j + 1) begin
-                    if (i + j >= {k}) begin
-                        acc = acc + ((a_in[i] & b_in[j]) << (i + j));
-                    end
-                end
-            end
-            acc = acc + ((a_in[{wA-1}] & b_in[{wB-1}]) << {wA + wB - 2});
-            for (j = 0; j < {wB-1}; j = j + 1)
-                acc = acc + ((1'b1 ^ (a_in[{wA-1}] & b_in[j])) << ({wA-1} + j));
-            for (i = 0; i < {wA-1}; i = i + 1)
-                acc = acc + ((1'b1 ^ (a_in[i] & b_in[{wB-1}])) << ({wB-1} + i));
-            {func_name} = acc;
-        end
-    endfunction
-"""
-            else:
-                func_code = f"""
-    function [{wP-1}:0] {func_name};
-        input [{wA-1}:0] a_in;
-        input [{wB-1}:0] b_in;
-        integer i, j;
-        reg [{wP-1}:0] acc;
-        begin
-            acc = {bias};
-            for (i = 0; i < {wA}; i = i + 1) begin
-                for (j = 0; j < {wB}; j = j + 1) begin
-                    if (i + j >= {k}) begin
-                        acc = acc + ((a_in[i] & b_in[j]) << (i + j));
-                    end
-                end
-            end
-            {func_name} = acc;
-        end
-    endfunction
-"""
-            cand_code = re.sub(r"\bassign\b", f"{func_code}\n  assign", raw_code, count=1)
-            cand_code = cand_code.replace(mul_m.group(0), f"{func_name}({opA_clean}, {opB_clean})")
-
-            cand_p = run_dir / f"cand_bam_k{k}.v"
-            cand_p.write_text(cand_code, encoding="utf-8")
-            candidates.append({
-                "name": f"BAM_k{k}",
-                "path": cand_p,
-                "strategy": "bam",
-                "k": k,
-            })
-
-        return candidates
-
     def _generate_lut_pruned_candidates(self, iface: Dict[str, Any], run_dir: Path) -> List[Dict[str, Any]]:
         """Strategy 2: Map cone directly to 6-LUTs via Yosys & ABC, and prune LUT input cuts."""
         candidates: List[Dict[str, Any]] = []
@@ -818,28 +616,8 @@ endmodule
         logger.info("Exact Baseline FPGA Footprint: %d LCs (Slice LUTs: %d, CARRY4: %d)",
                     baseline_lcs, baseline_lut, baseline_c4)
 
-        # Generate candidates from both strategies
+        # Generate candidates strictly from pyALS engine
         all_candidates: List[Dict[str, Any]] = []
-
-        if method.lower() in ("auto", "carry_prune", "inouts"):
-            logger.info("Generating Carry-Aware Arithmetic Pruning candidates...")
-            carry_cands = self._generate_carry_pruned_candidates(iface, run_dir)
-            all_candidates.extend(carry_cands)
-
-        if method.lower() in ("auto", "loa"):
-            logger.info("Generating Lower-Part OR Adder (LOA) candidates...")
-            loa_cands = self._generate_loa_candidates(iface, run_dir)
-            all_candidates.extend(loa_cands)
-
-        if method.lower() in ("auto", "bam", "ppt"):
-            logger.info("Generating Broken Array Multiplier (BAM) candidates...")
-            bam_cands = self._generate_bam_candidates(iface, run_dir)
-            all_candidates.extend(bam_cands)
-
-        if method.lower() in ("auto", "lut_prune", "probprun"):
-            logger.info("Generating Native 6-LUT Cut Pruning candidates...")
-            lut_cands = self._generate_lut_pruned_candidates(iface, run_dir)
-            all_candidates.extend(lut_cands)
 
         if method.lower() in ("auto", "pyals", "als"):
             logger.info("Generating pyALS Catalog-based AIG Rewriting candidates...")
@@ -858,12 +636,21 @@ endmodule
                 all_candidates.extend(pyals_cands)
                 logger.info("Generated %d pyALS Catalog-based AIG Rewriting candidates", len(pyals_cands))
             except Exception as exc:
-                logger.debug("pyALS candidate generation skipped: %s", exc)
-
-        if method.lower() in ("auto", "dt", "decision_tree", "decisiontree"):
+                logger.warning("pyALS candidate generation skipped: %s", exc)
+        elif method.lower() in ("carry_prune", "inouts"):
+            logger.info("Generating Carry-Aware Arithmetic Pruning candidates...")
+            carry_cands = self._generate_carry_pruned_candidates(iface, run_dir)
+            all_candidates.extend(carry_cands)
+        elif method.lower() in ("lut_prune", "probprun"):
+            logger.info("Generating Native 6-LUT Cut Pruning candidates...")
+            lut_cands = self._generate_lut_pruned_candidates(iface, run_dir)
+            all_candidates.extend(lut_cands)
+        elif method.lower() in ("dt", "decision_tree", "decisiontree"):
             logger.info("Generating Decision Tree 6-LUT candidates...")
             dt_cands = self._generate_dt_candidates(iface, stim_hex, run_dir)
             all_candidates.extend(dt_cands)
+        else:
+            raise ValueError(f"Unsupported approximation method '{method}'. AxFPGA operates strictly with 'pyals'.")
 
         logger.info("Evaluating %d candidate approximate netlists...", len(all_candidates))
 
@@ -988,12 +775,12 @@ endmodule
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="AxSYS Native FPGA Approximate Logic Synthesis Backend")
+    parser = argparse.ArgumentParser(description="AxFPGA Native Approximate Logic Synthesis Backend (pyALS)")
     parser.add_argument("-i", "--input", required=True, help="Path to extracted_cone.v")
     parser.add_argument("-m", "--metric", default="MED", help="Target error metric (MED, WCE, ER)")
     parser.add_argument("-b", "--bound", type=float, default=16.0, help="Error bound threshold")
     parser.add_argument("--lsb-width", type=int, default=None, help="Explicit LSB pruning width")
-    parser.add_argument("-a", "--method", default="auto", help="Approximation strategy (auto, carry_prune, lut_prune)")
+    parser.add_argument("-a", "--method", default="pyals", choices=["pyals", "als", "auto"], help="Approximation engine (strictly pyALS)")
     parser.add_argument("--meta", default=None, help="Path to cone_meta.json")
     parser.add_argument("-o", "--output", default="approx_cone.v", help="Output path for approximate netlist")
     parser.add_argument("--target-device", default="xc7a35t", help="Target FPGA device")

@@ -1,11 +1,9 @@
 """AxFPGA: Attribute-Driven Approximate Logic Synthesis & Verification Framework for FPGAs.
 
 Optimized natively for Xilinx 7-Series / Artix-7 Architectures.
-Integrates:
-- pyALS / pyALSlib / pyALS-lut-catalog (Salvatore Barone): Catalog-based AIG-rewriting Approximate Engine.
-- Broken Array Multiplier (BAM) & Partial Product Truncation.
-- Lower-Part OR Adder (LOA) with Speculative Carry Generation.
-- Native 6-LUT / 4-LUT cut pruning and Xilinx 7-Series resource modeling.
+Approximation Engine:
+- Strictly pyALS / pyALSlib / pyALS-lut-catalog (Salvatore Barone): Catalog-based AIG-rewriting Approximate Engine.
+- Multi-objective K-LUT rewriting, truth-table distance substitution, and cut pruning.
 - Attribute-driven taint isolation and formal SAT verification.
 """
 

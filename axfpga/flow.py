@@ -51,7 +51,7 @@ class AxcFlow:
         stimulus_file: Optional[str | Path] = None,
         enable_formal: bool = True,
         formal_timeout: int = 60,
-        axc_method: str = "auto",
+        axc_method: str = "pyals",
         override_bound: Optional[float] = None,
         target: str = "fpga",
         fpga_family: str = "xc7",
@@ -385,7 +385,7 @@ def main() -> None:
     parser.add_argument("-s", "--samples", type=int, default=300, help="Simulation samples")
     parser.add_argument("-n", "--verify-cycles", type=int, default=300, help="Miter verification clock cycles")
     parser.add_argument("--decompose", action="store_true", help="Decompose coarse-grain arithmetic cells into bit-level primitives")
-    parser.add_argument("-a", "--method", default="auto", choices=["auto", "pyals", "als", "inouts", "probprun", "decisiontree", "dt", "decision_tree", "carry_prune", "lut_prune", "loa", "bam", "ppt"], help="Logic approximation backend algorithm")
+    parser.add_argument("-a", "--method", default="pyals", choices=["pyals", "als", "auto"], help="Logic approximation engine (strictly pyALS)")
     parser.add_argument("-b", "--bound", type=float, default=None, help="Override target error bound")
     parser.add_argument("--no-trace", action="store_true", help="Disable realistic pipeline trace extraction")
     parser.add_argument("--stimulus-file", default=None, help="Top-level primary input trace stimulus file")

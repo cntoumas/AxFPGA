@@ -6,20 +6,11 @@ AxFPGA is a native FPGA Approximate Logic Synthesis (ALS) & Formal Verification 
 
 ## Key Features
 
-1. **Integrated Approximation Engines**:
-   - **`pyALS` / `pyALSlib` / `pyALS-lut-catalog` (Salvatore Barone)**:
+1. **Approximation Engine: pyALS (Salvatore Barone)**:
+   - **`pyALS` / `pyALSlib` / `pyALS-lut-catalog`**:
      - Catalog-based AIG-rewriting Approximate Logic Synthesis.
      - Maps circuits to K-LUT graphs, queries pre-characterized 4-LUT approximation database (`lut_catalog.db`), and applies multi-objective rewriting under error bounds.
-   - **Broken Array Multipliers (BAM)**:
-     - Structural partial product array truncation with Baugh-Wooley signed 2's complement bias compensation, achieving up to 78.5% Logic Cell savings on soft-logic multipliers.
-   - **Lower-Part OR Adders (LOA)**:
-     - Speculative carry chain elimination replacing dedicated CARRY4 primitives with 2-input LUT OR networks, saving 16.4% Logic Cells on multi-operand adder stencils.
-   - **RTL Loop & Tap Perforator (`RtlLoopPerforator`)**:
-     - Spatial tap decimation on multi-operand summation trees (FIR filters).
-     - Sequential iteration counter truncation (numeric and parameterized bounds) for latency/cycle reduction.
-     - Temporal stride decimation wrappers for dynamic switching power reduction.
-   - **Native 6-LUT Input & Cut Pruning**:
-     - Pruning LUT fan-in cuts and clamping non-critical bits.
+     - Performs distance-k truth table rewrites, cumulative LUT pruning, and output bit-level simplifications.
 
 2. **Physical Architecture Modeling**:
    - Explicit Xilinx 7-Series primitive decomposition: LUT6, LUT5..1, CARRY4, FDRE/FDSE, DSP48E1, BRAM.

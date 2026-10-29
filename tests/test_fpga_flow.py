@@ -22,7 +22,7 @@ def test_fpga_end_to_end_flow_mac(tmp_path: Path):
         clk_period_ns=10.0,
         sim_samples=100,
         verify_cycles=100,
-        axc_method="inouts",
+        axc_method="pyals",
         override_bound=64.0,
         enable_formal=True,
         use_realistic_traces=True,

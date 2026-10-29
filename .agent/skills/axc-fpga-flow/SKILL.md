@@ -1,6 +1,6 @@
 ---
 name: axc-fpga-flow
-description: Build, synthesize, approximate, and verify attribute-driven approximate computing hardware flows specialized for FPGA architectures (Xilinx 7-Series / Artix-7 xc7a35t). Leverages SalvatoreBarone's pyALS, pyALSlib, and pyALS-lut-catalog (2244 pre-characterized K-LUT entries) as the primary approximation engine, alongside FPGA-specific arithmetic techniques (LOA speculative carry, BAM partial product truncation), loop/tap perforation, and logic cell resource estimation (LUT6, CARRY4, DSP48E1, FDRE).
+description: Build, synthesize, approximate, and verify attribute-driven approximate computing hardware flows specialized for FPGA architectures (Xilinx 7-Series / Artix-7 xc7a35t). Leverages SalvatoreBarone's pyALS, pyALSlib, and pyALS-lut-catalog (2244 pre-characterized K-LUT entries) as the exclusive approximation engine, with multi-objective K-LUT rewriting and logic cell resource estimation (LUT6, CARRY4, DSP48E1, FDRE).
 ---
 
 # axc-fpga-flow: FPGA-Specialized Approximate Computing Architecture & Flow
@@ -36,19 +36,11 @@ The primary approximation engine in `AxFPGA` replaces ASIC-centric AxLS with **p
   ```
   The rewritten truth table replaces the original mask, simplifying the downstream LUT mapping in Vivado/Yosys.
 
-### 1.2 FPGA Arithmetic Approximators: LOA & BAM
-In addition to catalog rewriting, `AxFPGA` includes FPGA-native structural arithmetic transforms:
-- **Lower-Part OR Adder (LOA)**:
-  - Divides an $N$-bit adder into $K$ approximate LSBs and $(N-K)$ precise MSBs.
-  - Approximate LSBs: $Sum_i = A_i \lor B_i$ (implemented with 1 LUT per 2 bits in Artix-7 dual-output LUTs).
-  - Fast Carry-Chain Pruning: Completely eliminates $\lceil K/4 \rceil$ `CARRY4` primitives.
-  - Carry-in to MSB: $Cin_{\text{precise}} = A_{K-1} \land B_{K-1}$.
-- **Broken Array Multiplier (BAM)**:
-  - For soft-logic multipliers (non-DSP), truncates both horizontal ($h$) and vertical ($v$) partial-product diagonals:
-  - Eliminates $(h \cdot N + v \cdot M - h \cdot v)$ partial product AND gates and downstream CARRY4 addition trees.
-
-### 1.3 Native 6-LUT / 4-LUT Cut Pruning
-- Prunes high-input-fanout LUT cuts and evaluates signal observability under active stimulus vectors to collapse multi-level LUT trees into shallower logic paths.
+### 1.2 pyALS Truth-Table Distance & Cut Pruning
+In addition to catalog matching, `pyALS` provides:
+- **Distance-k Truth-Table Rewriting**: Substitutes LUT truth tables with neighboring configurations within Hamming distance $d_k$ to eliminate complex terms while bounding error.
+- **Cumulative LUT Pruning**: Simplifies lower-significance LUT outputs to zero or constant levels to reduce downstream LUT usage and carry chain requirements.
+- **Output Bit-Level Pruning**: Truncates least significant relaxed datapath bits directly under strict error bounds.
 
 ---
 
@@ -59,7 +51,7 @@ AxFPGA/
 ├── axfpga/                       # Core python package (installed as editable)
 │   ├── __init__.py
 │   ├── pyals_bridge.py           # pyALS & lut_catalog.db integration bridge
-│   ├── fpga_backend.py           # LOA, BAM, pyALS approximation tournament backend
+│   ├── fpga_backend.py           # pyALS approximation backend & tournament arbiter
 │   ├── fpga_estimator.py         # Xilinx 7-series LUT, CARRY4, DSP, LC estimator
 │   ├── cone_extractor.py         # Pyosys RTLIL cone extractor (axc_relax / axc_precise)
 │   ├── trace_extractor.py        # Top-level realistic trace simulation
@@ -90,12 +82,9 @@ flowchart TD
         ConeExt --> Shell["top_shell.v (Control & Precise Shell)"]
     end
 
-    subgraph S2["2. FPGA Approximation Engine"]
-        SafeCone --> EngineSelector{"Approximation Engine"}
-        EngineSelector -->|Structural Add/Mul| Arith["LOA / BAM Pruners<br/>CARRY4 & LUT Savings"]
-        EngineSelector -->|Combinational Logic| pyALS["pyALS + lut_catalog.db<br/>K-LUT Rewriting & AIG Pruning"]
-        EngineSelector -->|Filters / Stencils| Perf["Loop / Tap Perforator<br/>DSP48E1 Pruning"]
-        Arith & pyALS & Perf --> Candidates["Mutant Generation"]
+    subgraph S2["2. pyALS Approximation Engine"]
+        SafeCone --> pyALS["pyALS + lut_catalog.db<br/>K-LUT Rewriting & AIG Pruning"]
+        pyALS --> Candidates["Mutant Generation (Distance-k & Pruning)"]
     end
 
     subgraph S3["3. FPGA Synthesis & Formal Verification"]
@@ -172,10 +161,10 @@ pareto_results = sweeper.run_sweep()
 
 ## 5. FPGA Design Best Practices
 
-1. **Protect Fast Carry Chains**: If an adder cannot tolerate approximation, mark it with `(* axc_precise *)` so `ConeExtractor` leaves the dedicated `CARRY4` chain unmodified.
-2. **Prioritize Carry Chain Reduction in Approximate Regions**:
-   - For soft-logic arithmetic, `CARRY4` cells often dominate timing delay. Pruning lower carry stages with `LOA` yields dual benefits: immediate logic cell reduction ($1 \text{ CARRY4} = 2 \text{ Logic Cells}$) and significant path delay reduction.
-3. **Exploit 6-LUT Dual Outputs**:
+1. **Protect Precise Chains**: If an adder or datapath block cannot tolerate approximation, mark it with `(* axc_precise *)` so `ConeExtractor` preserves the precise logic unmodified.
+2. **pyALS Logic Density Optimization**:
    - Two 5-input functions sharing inputs can fit into a single Xilinx `LUT6_2`. When mapping approximate cones via `pyALS`, targeting 4-LUT or 5-LUT truth tables maximizes LUT packing density in Vivado.
+3. **Carry Chain Minimization via LUT Simplification**:
+   - Downstream carry chain synthesis (`CARRY4`) naturally prunes when pyALS eliminates or constants inputs feeding the carry multiplexers.
 4. **DSP48E1 vs. Fabric Trade-offs**:
-   - On Artix-7 `xc7a35t`, only 90 DSP slices are available. If DSP count is saturated, converting approximate multiplications to truncated shift-add/BAM trees saves DSPs for precise pipeline stages.
+   - On Artix-7 `xc7a35t`, only 90 DSP slices are available. If DSP count is saturated, converting multiplications to soft-logic enables pyALS to approximate the logic.
