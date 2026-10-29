@@ -16,7 +16,7 @@ except Exception:
 
 REPORTS_DIR = Path("/home/christos-ntoumas/AxFPGA/reports")
 FIGURES_DIR = REPORTS_DIR / "figures"
-ARTIFACT_DIR = Path("/home/christos-ntoumas/.gemini/antigravity-cli/brain/cec24320-89c5-4ed7-82c0-2ec5456f3a4c")
+ARTIFACT_DIR = Path("/home/christos-ntoumas/.gemini/antigravity-cli/brain/2613abdb-b70b-416b-a068-b81a81a8f2db")
 
 FIGURES_DIR.mkdir(parents=True, exist_ok=True)
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
