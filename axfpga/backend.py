@@ -1,4 +1,4 @@
-"""Native FPGA Approximate Logic Synthesis Backend for AxSYS.
+"""Native FPGA Approximate Logic Synthesis Backend for AxFPGA.
 
 Replaces ASIC-centric gate-level approximation with native FPGA-aware logic pruning
 and technology mapping targeting Xilinx 7-Series / Artix-7 architectures:
@@ -25,7 +25,6 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import numpy as np
 
 from axfpga.estimator import FpgaEstimator
 
@@ -327,286 +326,6 @@ endmodule
 
         return {"med": med, "wce": wce, "er": er}
 
-    def _generate_carry_pruned_candidates(self, iface: Dict[str, Any], run_dir: Path) -> List[Dict[str, Any]]:
-        """Strategy 1: Generate carry-aware arithmetic bit truncation & rounding candidates."""
-        run_dir.mkdir(parents=True, exist_ok=True)
-        candidates: List[Dict[str, Any]] = []
-        raw_code = iface["raw_content"]
-        rel_out = iface["relaxed_output"]
-        rel_width = iface["outputs"][rel_out]["width"]
-
-        # Max bit truncation depth up to rel_width - 1
-        max_k = min(rel_width - 1, 16)
-        trunc_steps = [k for k in range(1, max_k + 1)]
-
-        for k in trunc_steps:
-            # Candidate 1: Zero truncation
-            # Wrap the relaxed output: assign relaxed_out = {orig_out[W-1:k], k'b0}
-            cand_code_zero = re.sub(
-                rf"\bassign\s+{rel_out}\s*=\s*(.*?);",
-                rf"wire [{rel_width-1}:0] _raw_{rel_out};\n  assign _raw_{rel_out} = \1;\n  assign {rel_out} = {{_raw_{rel_out}[{rel_width-1}:{k}], {k}'b0}};",
-                raw_code,
-            )
-            cand_p_zero = run_dir / f"cand_carry_trunc_{k}.v"
-            cand_p_zero.write_text(cand_code_zero, encoding="utf-8")
-            candidates.append({
-                "name": f"CarryPrune_k{k}_zero",
-                "path": cand_p_zero,
-                "strategy": "carry_prune",
-                "k": k,
-                "rounding": "zero",
-            })
-
-            # Candidate 2: Round-to-nearest constant bias (sets bit k-1 to 1'b1)
-            if k >= 2:
-                zeros_count = k - 1
-                zeros_str = f"{zeros_count}'b0" if zeros_count > 0 else ""
-                suffix = f", 1'b1, {zeros_str}" if zeros_count > 0 else ", 1'b1"
-                cand_code_round = re.sub(
-                    rf"\bassign\s+{rel_out}\s*=\s*(.*?);",
-                    rf"wire [{rel_width-1}:0] _raw_{rel_out};\n  assign _raw_{rel_out} = \1;\n  assign {rel_out} = {{_raw_{rel_out}[{rel_width-1}:{k}]{suffix}}};",
-                    raw_code,
-                )
-                cand_p_round = run_dir / f"cand_carry_round_{k}.v"
-                cand_p_round.write_text(cand_code_round, encoding="utf-8")
-                candidates.append({
-                    "name": f"CarryPrune_k{k}_round",
-                    "path": cand_p_round,
-                    "strategy": "carry_prune",
-                    "k": k,
-                    "rounding": "nearest",
-                })
-
-        return candidates
-
-    def _generate_lut_pruned_candidates(self, iface: Dict[str, Any], run_dir: Path) -> List[Dict[str, Any]]:
-        """Strategy 2: Map cone directly to 6-LUTs via Yosys & ABC, and prune LUT input cuts."""
-        candidates: List[Dict[str, Any]] = []
-        top_name = iface["module_name"]
-
-        base_lut_v = run_dir / "base_lut_cone.v"
-        yosys_cmd = (
-            f"read_verilog -sv {self.cone_vlog}; "
-            f"hierarchy -check -top {top_name}; "
-            f"proc; opt_clean; "
-            f"synth_xilinx -family {self.target_family} -top {top_name}; "
-            f"clean; "
-            f"write_verilog -noattr {base_lut_v}"
-        )
-        cmd = f"yosys -q -p \"{yosys_cmd}\""
-        res = subprocess.run(cmd, shell=True, executable="/bin/bash", capture_output=True, text=True)
-        if res.returncode != 0 or not base_lut_v.exists():
-            logger.debug("Yosys LUT mapping failed for cone: %s", res.stderr)
-            return candidates
-
-        lut_content = base_lut_v.read_text(encoding="utf-8")
-
-        # Discover all multi-bit input ports and prune least significant bits
-        for inp_name, info in iface["inputs"].items():
-            w = info["width"]
-            if w <= 1:
-                continue
-            for prune_k in range(1, min(w, 5)):
-                # Clamping the lower prune_k bits to zero in the base netlist
-                mod_lut = lut_content
-                # Replace input occurrences like wire [w-1:0] inp_name;
-                # with an assign setting lower bits to 0
-                clamp_wire = f"\n  // Pruning {inp_name} lower {prune_k} bits\n"
-                for bit_idx in range(prune_k):
-                    # Replace driving net
-                    mod_lut = re.sub(rf"\b{inp_name}\[{bit_idx}\]\b", "1'b0", mod_lut)
-
-                cand_lut_p = run_dir / f"cand_lut_prune_{inp_name}_k{prune_k}.v"
-                # Clean up netlist with yosys
-                opt_cand_p = run_dir / f"cand_lut_opt_{inp_name}_k{prune_k}.v"
-                cand_lut_p.write_text(mod_lut, encoding="utf-8")
-
-                clean_cmd = f"read_verilog {cand_lut_p}; proc; opt_clean -purge; write_verilog -noattr {opt_cand_p}"
-                subprocess.run(f"yosys -q -p \"{clean_cmd}\"", shell=True, executable="/bin/bash", capture_output=True)
-
-                if opt_cand_p.exists():
-                    candidates.append({
-                        "name": f"LutPrune_{inp_name}_k{prune_k}",
-                        "path": opt_cand_p,
-                        "strategy": "lut_prune",
-                    })
-
-        return candidates
-
-    def _generate_dt_candidates(
-        self,
-        iface: Dict[str, Any],
-        stim_hex: Path,
-        run_dir: Path,
-    ) -> List[Dict[str, Any]]:
-        """Strategy 3: Train Scikit-Learn Decision Trees (depth <= 6) mapped to FPGA 6-LUTs."""
-        candidates: List[Dict[str, Any]] = []
-        inputs = iface["inputs"]
-        outputs = iface["outputs"]
-        rel_out = iface["relaxed_output"]
-        rel_width = outputs[rel_out]["width"]
-        is_sub = "sub" in iface["module_name"].lower() or "diff" in rel_out.lower() or "sub" in rel_out.lower()
-        rel_signed = outputs[rel_out].get("signed", False) or is_sub
-
-        # Step 1: Record exact I/O dataset using iverilog
-        tb_rec = run_dir / "tb_record_dt.v"
-        exact_out_txt = run_dir / "exact_dt_io.txt"
-        vvp_rec = run_dir / "tb_record_dt.vvp"
-
-        inp_decls = [f"  reg [{info['width']-1}:0] in_{k};" for k, info in inputs.items()]
-        signed_decl = "signed " if rel_signed else ""
-        out_decls = [f"  wire {signed_decl}[{info['width']-1}:0] out_{k};" for k, info in outputs.items()]
-        inst_conns = [f".{k}(in_{k})" for k in inputs.keys()] + [f".{k}(out_{k})" for k in outputs.keys()]
-        read_conns = [f"in_{k}" for k in inputs.keys()]
-        format_str = " ".join(["%x"] * len(inputs))
-        format_out = " ".join(["%x"] * (len(inputs) + 1))
-
-        tb_code = f"""`timescale 1ns/1ps
-module tb_record_dt;
-{chr(10).join(inp_decls)}
-{chr(10).join(out_decls)}
-
-  integer fd_in, fd_out, r;
-  {iface['module_name']} u_dut ({", ".join(inst_conns)});
-
-  initial begin
-    fd_in = $fopen("{stim_hex}", "r");
-    fd_out = $fopen("{exact_out_txt}", "w");
-    
-    // Skip comment line
-    r = $fgetc(fd_in);
-    if (r == 35) while (r != 10 && r != -1) r = $fgetc(fd_in);
-    else $ungetc(r, fd_in);
-
-    while (!$feof(fd_in)) begin
-      r = $fscanf(fd_in, "{format_str}\\n", {", ".join(read_conns)});
-      if (r == {len(inputs)}) begin
-        #1;
-        $fdisplay(fd_out, "{format_out}", {", ".join(read_conns)}, out_{rel_out});
-      end
-    end
-    $fclose(fd_in);
-    $fclose(fd_out);
-    $finish;
-  end
-endmodule
-"""
-        tb_rec.write_text(tb_code, encoding="utf-8")
-        res_c = subprocess.run(f"iverilog -g2012 -o {vvp_rec} {tb_rec} {self.cone_vlog}", shell=True, capture_output=True, text=True)
-        if res_c.returncode != 0:
-            logger.debug("Could not compile DT recorder TB: %s", res_c.stderr)
-            return candidates
-        res_r = subprocess.run(f"vvp {vvp_rec}", shell=True, capture_output=True, text=True)
-        if res_r.returncode != 0 or not exact_out_txt.exists():
-            return candidates
-
-        # Step 2: Parse dataset into binary features
-        lines = exact_out_txt.read_text(encoding="utf-8").strip().splitlines()
-        X_rows = []
-        Y_rows = []
-
-        # Map input bits to names
-        input_bit_names = []
-        for k, info in inputs.items():
-            w = info["width"]
-            if w == 1:
-                input_bit_names.append(k)
-            else:
-                for b in range(w):
-                    input_bit_names.append(f"{k}[{b}]")
-
-        for line in lines:
-            parts = line.split()
-            if len(parts) == len(inputs) + 1:
-                in_vals = [int(p, 16) for p in parts[:-1]]
-                out_val = int(parts[-1], 16)
-
-                # Unpack input bits
-                x_bits = []
-                for idx, (k, info) in enumerate(inputs.items()):
-                    val = in_vals[idx]
-                    w = info["width"]
-                    for b in range(w):
-                        x_bits.append((val >> b) & 1)
-                X_rows.append(x_bits)
-
-                # Unpack output bits
-                y_bits = [(out_val >> b) & 1 for b in range(rel_width)]
-                Y_rows.append(y_bits)
-
-        if not X_rows or not Y_rows:
-            return candidates
-
-        X_mat = np.array(X_rows, dtype=np.int32)
-        Y_mat = np.array(Y_rows, dtype=np.int32)
-
-        # Step 3: Train decision trees of varying depths
-        from sklearn.tree import DecisionTreeClassifier
-        from axfpga.axls_bridge import tree_to_verilog_expr
-
-        depth_options = [2, 3, 4, 5, 6]
-        k_options = [1, 2, 3, 4, 6, 8, rel_width] if rel_width > 4 else [1, 2, rel_width]
-        k_options = sorted(list(set(k for k in k_options if 0 < k <= rel_width)))
-
-        raw_code = iface["raw_content"]
-
-        for depth in depth_options:
-            for k_approx in k_options:
-                dt_bit_assigns = []
-                for bit_idx in range(k_approx):
-                    y_col = Y_mat[:, bit_idx]
-                    if np.all(y_col == 0):
-                        expr = "1'b0"
-                    elif np.all(y_col == 1):
-                        expr = "1'b1"
-                    else:
-                        clf = DecisionTreeClassifier(max_depth=depth, random_state=42)
-                        clf.fit(X_mat, y_col)
-                        expr = tree_to_verilog_expr(clf.tree_, 0, input_bit_names, clf.classes_)
-                    dt_bit_assigns.append((bit_idx, expr))
-
-                # Build candidate Verilog
-                assign_str = ""
-                for bit_idx, expr in dt_bit_assigns:
-                    assign_str += f"  wire _dt_bit_{bit_idx};\n  assign _dt_bit_{bit_idx} = {expr};\n"
-
-                if k_approx == rel_width:
-                    concat_bits = ", ".join(f"_dt_bit_{b}" for b in reversed(range(rel_width)))
-                    rep_str = f"wire [{rel_width-1}:0] _raw_{rel_out};\n  assign _raw_{rel_out} = \\1;\n{assign_str}"
-                    if "valid_in" in inputs:
-                        rep_str += f"\n  assign {rel_out} = valid_in ? {{{concat_bits}}} : _raw_{rel_out};"
-                    elif "clear" in inputs and "enable" in inputs:
-                        rep_str += f"\n  assign {rel_out} = clear ? _raw_{rel_out} : (enable ? {{{concat_bits}}} : _raw_{rel_out});"
-                    elif "clear" in inputs:
-                        rep_str += f"\n  assign {rel_out} = clear ? _raw_{rel_out} : {{{concat_bits}}};"
-                    else:
-                        rep_str += f"\n  assign {rel_out} = {{{concat_bits}}};"
-                else:
-                    concat_bits = ", ".join(f"_dt_bit_{b}" for b in reversed(range(k_approx)))
-                    rep_str = f"wire [{rel_width-1}:0] _raw_{rel_out};\n  assign _raw_{rel_out} = \\1;\n{assign_str}"
-                    if "valid_in" in inputs:
-                        rep_str += f"\n  assign {rel_out} = valid_in ? {{_raw_{rel_out}[{rel_width-1}:{k_approx}], {concat_bits}}} : _raw_{rel_out};"
-                    elif "clear" in inputs and "enable" in inputs:
-                        rep_str += f"\n  assign {rel_out} = clear ? _raw_{rel_out} : (enable ? {{_raw_{rel_out}[{rel_width-1}:{k_approx}], {concat_bits}}} : _raw_{rel_out});"
-                    elif "clear" in inputs:
-                        rep_str += f"\n  assign {rel_out} = clear ? _raw_{rel_out} : {{_raw_{rel_out}[{rel_width-1}:{k_approx}], {concat_bits}}};"
-                    else:
-                        rep_str += f"\n  assign {rel_out} = {{_raw_{rel_out}[{rel_width-1}:{k_approx}], {concat_bits}}};"
-
-                cand_code = re.sub(rf"\bassign\s+{rel_out}\s*=\s*(.*?);", rep_str, raw_code, count=1)
-                cand_file = run_dir / f"cand_dt_d{depth}_k{k_approx}.v"
-                cand_file.write_text(cand_code, encoding="utf-8")
-
-                candidates.append({
-                    "name": f"DecisionTree_d{depth}_k{k_approx}",
-                    "path": cand_file,
-                    "strategy": "decision_tree",
-                    "depth": depth,
-                    "k_approx": k_approx,
-                })
-
-        return candidates
-
     def optimize(
         self,
         metric: str = "MED",
@@ -640,38 +359,26 @@ endmodule
         # Generate candidates strictly from pyALS engine
         all_candidates: List[Dict[str, Any]] = []
 
-        if method.lower() in ("auto", "pyals", "als"):
-            logger.info("Generating pyALS Catalog-based AIG Rewriting candidates...")
-            try:
-                from axfpga.pyals_bridge import PyAlsBridge
-                pyals_bridge = PyAlsBridge(
-                    cone_verilog_path=self.cone_vlog,
-                    meta_json_path=self.meta_json,
-                    work_dir=run_dir / "pyals_run",
-                    target_family=self.target_family,
-                    target_device=self.target_device,
-                    nodsp=self.nodsp,
-                    sim_samples=self.sim_samples,
-                )
-                pyals_cands = pyals_bridge.generate_catalog_candidates()
-                all_candidates.extend(pyals_cands)
-                logger.info("Generated %d pyALS Catalog-based AIG Rewriting candidates", len(pyals_cands))
-            except Exception as exc:
-                logger.warning("pyALS candidate generation skipped: %s", exc)
-        elif method.lower() in ("carry_prune", "inouts"):
-            logger.info("Generating Carry-Aware Arithmetic Pruning candidates...")
-            carry_cands = self._generate_carry_pruned_candidates(iface, run_dir)
-            all_candidates.extend(carry_cands)
-        elif method.lower() in ("lut_prune", "probprun"):
-            logger.info("Generating Native 6-LUT Cut Pruning candidates...")
-            lut_cands = self._generate_lut_pruned_candidates(iface, run_dir)
-            all_candidates.extend(lut_cands)
-        elif method.lower() in ("dt", "decision_tree", "decisiontree"):
-            logger.info("Generating Decision Tree 6-LUT candidates...")
-            dt_cands = self._generate_dt_candidates(iface, stim_hex, run_dir)
-            all_candidates.extend(dt_cands)
-        else:
-            raise ValueError(f"Unsupported approximation method '{method}'. AxFPGA operates strictly with 'pyals'.")
+        if method.lower() not in ("auto", "pyals", "als"):
+            logger.warning("Approximation method '%s' is deprecated; AxFPGA runs pyALS only.", method)
+
+        logger.info("Generating pyALS Catalog-based AIG Rewriting candidates...")
+        try:
+            from axfpga.pyals_bridge import PyAlsBridge
+            pyals_bridge = PyAlsBridge(
+                cone_verilog_path=self.cone_vlog,
+                meta_json_path=self.meta_json,
+                work_dir=run_dir / "pyals_run",
+                target_family=self.target_family,
+                target_device=self.target_device,
+                nodsp=self.nodsp,
+                sim_samples=self.sim_samples,
+            )
+            pyals_cands = pyals_bridge.generate_catalog_candidates()
+            all_candidates.extend(pyals_cands)
+            logger.info("Generated %d pyALS Catalog-based AIG Rewriting candidates", len(pyals_cands))
+        except Exception as exc:
+            logger.warning("pyALS candidate generation skipped: %s", exc)
 
         logger.info("Evaluating %d candidate approximate netlists...", len(all_candidates))
 
