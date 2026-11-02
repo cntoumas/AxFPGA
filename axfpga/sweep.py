@@ -303,7 +303,7 @@ def main() -> None:
     parser.add_argument("-o", "--output-dir", default="build/pareto_sweep", help="Output directory for sweep artifacts")
     parser.add_argument("--bounds", required=True, help="Comma-separated target error bounds (e.g. 1.0,2.0,4.0,8.0)")
     parser.add_argument("-m", "--metric", default="med", help="Target error metric (med, mred, wce, er)")
-    parser.add_argument("-a", "--method", default="auto", choices=["auto", "inouts", "probprun", "decisiontree"], help="Logic approximation backend algorithm")
+    parser.add_argument("-a", "--method", default="auto", choices=["auto", "inouts", "probprun", "decisiontree"], help="Deprecated and ignored: AxFPGA always runs the pyALS Candidate Tournament")
     parser.add_argument("-t", "--tech", default="NanGate15nm", help="Standard cell tech library")
     parser.add_argument("--target", default="asic", choices=["asic", "fpga"], help="Target architecture (asic, fpga)")
     parser.add_argument("--fpga-family", default="xc7", help="Target FPGA family (default: xc7)")
