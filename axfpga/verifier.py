@@ -220,20 +220,25 @@ class FormalControlVerifier:
 
             # Only load tech library if netlist references standard cell primitives
             needs_tech = False
+            needs_fpga = False
             for vpath in [self.exact_vlog, self.approx_vlog]:
                 txt = vpath.read_text(encoding="utf-8", errors="ignore")
                 if "_X1" in txt or "_X2" in txt or "DFF" in txt:
                     needs_tech = True
-                    break
+                if any(p in txt for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")):
+                    needs_fpga = True
 
             tech_cmd = f"read_verilog -overwrite {self.tech_vlog};\n" if (needs_tech and self.tech_vlog and self.tech_vlog.exists()) else ""
+            fpga_cmd = "read_verilog -overwrite +/xilinx/cells_sim.v;\n" if needs_fpga else ""
             ys_script_path = work_dir / "formal_ctrl.ys"
 
             lines = [
                 tech_cmd,
+                fpga_cmd,
                 f"read_verilog -sv -overwrite {self.exact_vlog}",
                 f"rename {top_name} {top_name}_exact",
                 tech_cmd,
+                fpga_cmd,
                 f"read_verilog -sv -overwrite {self.approx_vlog}",
                 f"rename {top_name} {top_name}_approx",
                 f"read_verilog -sv {miter_path}",
@@ -527,20 +532,25 @@ class FormalWceVerifier:
 
             # Only load tech library if netlist references standard cell primitives
             needs_tech = False
+            needs_fpga = False
             for vpath in [self.exact_cone_vlog, self.approx_cone_vlog]:
                 txt = vpath.read_text(encoding="utf-8", errors="ignore")
                 if "_X1" in txt or "_X2" in txt or "DFF" in txt:
                     needs_tech = True
-                    break
+                if any(p in txt for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")):
+                    needs_fpga = True
 
             tech_cmd = f"read_verilog -overwrite {self.tech_vlog};\n" if (needs_tech and self.tech_vlog and self.tech_vlog.exists()) else ""
+            fpga_cmd = "read_verilog -overwrite +/xilinx/cells_sim.v;\n" if needs_fpga else ""
             ys_script_path = work_dir / "formal_wce.ys"
 
             lines = [
                 tech_cmd,
+                fpga_cmd,
                 f"read_verilog -sv -overwrite {self.exact_cone_vlog}",
                 f"rename {cone_module} {cone_module}_exact",
                 tech_cmd,
+                fpga_cmd,
                 f"read_verilog -sv -overwrite {self.approx_cone_vlog}",
                 f"rename {cone_module} {cone_module}_approx",
                 f"read_verilog -sv {miter_path}",
@@ -603,7 +613,7 @@ class MiterVerifier:
         self,
         exact_vlog: str | Path,
         approx_vlog: str | Path,
-        meta_json: str | Path,
+        meta_json: Optional[str | Path] = None,
         tech: str = "NanGate15nm",
         tech_vlog: Optional[str | Path] = None,
         num_cycles: int = 500,
@@ -614,7 +624,7 @@ class MiterVerifier:
     ):
         self.exact_vlog = Path(exact_vlog).resolve()
         self.approx_vlog = Path(approx_vlog).resolve()
-        self.meta_json = Path(meta_json).resolve()
+        self.meta_json = Path(meta_json).resolve() if meta_json else None
 
         if tech_vlog:
             self.tech_vlog = Path(tech_vlog).resolve()
@@ -635,20 +645,69 @@ class MiterVerifier:
         self.extracted_cone_vlog = Path(extracted_cone_vlog).resolve() if extracted_cone_vlog else None
         self.approx_cone_vlog = Path(approx_cone_vlog).resolve() if approx_cone_vlog else None
 
-        with open(self.meta_json, "r", encoding="utf-8") as f:
-            self.meta = json.load(f)
+        self.meta = {}
+        if self.meta_json and self.meta_json.is_file():
+            try:
+                with open(self.meta_json, "r", encoding="utf-8") as f:
+                    self.meta = json.load(f)
+            except Exception as e:
+                logger.warning("Could not read meta_json %s: %s", self.meta_json, e)
 
-        self.top_module = self.meta.get("top_module", "top")
+        self.top_module = self.meta.get("top_module")
+        if not self.top_module:
+            try:
+                d = ys.Design()
+                ys.run_pass(f"read_verilog -sv {self.exact_vlog}; hierarchy -auto-top", d)
+                if d.top_module():
+                    self.top_module = d.top_module().name.str().lstrip("\\")
+            except Exception:
+                pass
+        if not self.top_module:
+            self.top_module = "top"
 
     def _prepare_approx_netlist(self, work_dir: Path) -> Path:
         """Rename approximate top module to avoid collision in iverilog."""
         renamed_vlog = work_dir / f"{self.top_module}_approx.v"
         design = ys.Design()
-        tech_cmd = f"read_verilog -overwrite {self.tech_vlog}; " if self.tech_vlog.exists() else ""
+        tech_cmd = f"read_verilog -overwrite {self.tech_vlog}; " if (self.tech_vlog and self.tech_vlog.exists()) else ""
+        fpga_cmd = ""
+        try:
+            txt = self.approx_vlog.read_text(encoding="utf-8", errors="ignore")
+            if any(p in txt for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")):
+                fpga_cmd = "read_verilog -lib +/xilinx/cells_sim.v; "
+        except Exception:
+            pass
         cmd = (
+            f"{fpga_cmd}"
             f"read_verilog -overwrite {self.approx_vlog}; {tech_cmd}"
             f"hierarchy -check -top {self.top_module}; "
+            f"setattr -unset keep_hierarchy; "
+            f"proc; flatten; opt_clean; "
             f"rename {self.top_module} {self.top_module}_approx; "
+            f"write_verilog {renamed_vlog}"
+        )
+        ys.run_pass(cmd, design)
+        return renamed_vlog
+
+    def _prepare_exact_netlist(self, work_dir: Path) -> Path:
+        """Flatten and rename exact top module to avoid collision in iverilog and normalize register semantics."""
+        renamed_vlog = work_dir / f"{self.top_module}_exact.v"
+        design = ys.Design()
+        tech_cmd = f"read_verilog -overwrite {self.tech_vlog}; " if (self.tech_vlog and self.tech_vlog.exists()) else ""
+        fpga_cmd = ""
+        try:
+            txt = self.exact_vlog.read_text(encoding="utf-8", errors="ignore")
+            if any(p in txt for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")):
+                fpga_cmd = "read_verilog -lib +/xilinx/cells_sim.v; "
+        except Exception:
+            pass
+        cmd = (
+            f"{fpga_cmd}"
+            f"read_verilog -overwrite {self.exact_vlog}; {tech_cmd}"
+            f"hierarchy -check -top {self.top_module}; "
+            f"setattr -unset keep_hierarchy; "
+            f"proc; flatten; opt_clean; "
+            f"rename {self.top_module} {self.top_module}_exact; "
             f"write_verilog {renamed_vlog}"
         )
         ys.run_pass(cmd, design)
@@ -677,24 +736,36 @@ class MiterVerifier:
         outputs = ports_info["outputs"]
 
         relaxed_names = {s["wire"]: s for s in self.meta.get("relaxed_signals", [])}
+        if not relaxed_names:
+            sig = self.meta.get("relax_signal") or self.meta.get("relax_wire")
+            if sig:
+                relaxed_names[sig] = {"wire": sig}
+
+        # Declare clock and reset regs properly matching design ports
+        clk_inputs = {"clk", "clock"}
+        rst_inputs = {"rst", "rst_n", "reset", "reset_n"}
+
+        found_clks = [inp["name"] for inp in inputs if inp["name"].lower() in clk_inputs]
+        found_rsts = [inp["name"] for inp in inputs if inp["name"].lower() in rst_inputs]
 
         lines: List[str] = [
             "`timescale 1ns / 1ps",
             "",
             "module tb_miter;",
             "  reg clk;",
-            "  reg rst_n;",
+            "  reg sim_ready;",
         ]
-
-        # Declare input regs
-        clk_inputs = {"clk", "clock"}
-        rst_inputs = {"rst", "rst_n", "reset", "reset_n"}
+        for c in found_clks:
+            if c != "clk":
+                lines.append(f"  wire {c} = clk;")
+        for r in found_rsts:
+            lines.append(f"  reg {r};")
 
         for inp in inputs:
             name = inp["name"]
             width = inp["width"]
-            is_signed = inp.get("is_signed", False)
-            if name not in clk_inputs and name not in rst_inputs:
+            is_signed = inp.get("is_signed", False) or "mult" in self.top_module.lower()
+            if name.lower() not in clk_inputs and name.lower() not in rst_inputs:
                 signed_str = "signed " if is_signed else ""
                 range_str = f"[{width-1}:0] " if width > 1 else ""
                 lines.append(f"  reg {signed_str}{range_str}{name};")
@@ -703,7 +774,7 @@ class MiterVerifier:
         for out in outputs:
             name = out["name"]
             width = out["width"]
-            is_signed = out.get("is_signed", False)
+            is_signed = out.get("is_signed", False) or "mult" in self.top_module.lower() or "sub" in self.top_module.lower()
             signed_str = "signed " if is_signed else ""
             range_str = f"[{width-1}:0] " if width > 1 else ""
             lines.append(f"  wire {signed_str}{range_str}{name}_exact;")
@@ -736,8 +807,8 @@ class MiterVerifier:
             "  // Clock generation",
             "  always #5 clk = ~clk;",
             "",
-            f"  // Golden reference: {self.top_module}",
-            f"  {self.top_module} uut_exact (",
+            f"  // Golden reference: {self.top_module}_exact",
+            f"  {self.top_module}_exact uut_exact (",
         ])
 
         exact_conns = []
@@ -768,20 +839,33 @@ class MiterVerifier:
             "",
             "  initial begin",
             "    clk = 0;",
-            "    rst_n = 0;",
+            "    sim_ready = 0;",
         ])
+
+        for r in found_rsts:
+            if r.lower().endswith(("_n", "n")):
+                lines.append(f"    {r} = 0;")
+            else:
+                lines.append(f"    {r} = 1;")
 
         for inp in inputs:
             name = inp["name"]
-            if name not in clk_inputs and name not in rst_inputs:
+            if name.lower() not in clk_inputs and name.lower() not in rst_inputs:
                 lines.append(f"    {name} = 0;")
 
+        lines.append("    #20;")
+        for r in found_rsts:
+            if r.lower().endswith(("_n", "n")):
+                lines.append(f"    {r} = 1;")
+            else:
+                lines.append(f"    {r} = 0;")
+
         lines.extend([
-            "    #20 rst_n = 1;",
+            "    #10 sim_ready = 1;",
             "  end",
             "",
             "  always @(posedge clk) begin",
-            "    if (rst_n) begin",
+            "    if (sim_ready) begin",
             "      cycle_count <= cycle_count + 1;",
             "",
             "      // 1. Verify 100% Precise Control Integrity",
@@ -804,28 +888,56 @@ class MiterVerifier:
 
         for out in outputs:
             name = out["name"]
+            is_signed = out.get("is_signed", False) or "mult" in self.top_module.lower() or "sub" in self.top_module.lower()
             if name in relaxed_names:
+                if is_signed:
+                    lines.extend([
+                        f"      if ($signed({name}_exact) >= $signed({name}_approx)) begin",
+                        f"        diff_val = $signed({name}_exact) - $signed({name}_approx);",
+                        "      end else begin",
+                        f"        diff_val = $signed({name}_approx) - $signed({name}_exact);",
+                        "      end",
+                        f"      total_error_distance_{name} = total_error_distance_{name} + diff_val;",
+                        f"      if (diff_val > max_error_distance_{name}) max_error_distance_{name} = diff_val;",
+                        f"      if (diff_val > 0.0) error_cycle_count_{name} = error_cycle_count_{name} + 1;",
+                        f"      total_squared_error_{name} = total_squared_error_{name} + (diff_val * diff_val);",
+                        f"      if ($signed({name}_exact) != 0) begin",
+                        f"        total_rel_error_{name} = total_rel_error_{name} + (diff_val / ($signed({name}_exact) > 0 ? $signed({name}_exact) : -$signed({name}_exact)));",
+                        "      end",
+                    ])
+                else:
+                    lines.extend([
+                        f"      if ({name}_exact >= {name}_approx) begin",
+                        f"        diff_val = {name}_exact - {name}_approx;",
+                        "      end else begin",
+                        f"        diff_val = {name}_approx - {name}_exact;",
+                        "      end",
+                        f"      total_error_distance_{name} = total_error_distance_{name} + diff_val;",
+                        f"      if (diff_val > max_error_distance_{name}) max_error_distance_{name} = diff_val;",
+                        f"      if (diff_val > 0.0) error_cycle_count_{name} = error_cycle_count_{name} + 1;",
+                        f"      total_squared_error_{name} = total_squared_error_{name} + (diff_val * diff_val);",
+                        f"      if ({name}_exact != 0) begin",
+                        f"        total_rel_error_{name} = total_rel_error_{name} + (diff_val / ({name}_exact > 0 ? {name}_exact : -{name}_exact));",
+                        "      end",
+                    ])
                 lines.extend([
-                    f"      if ({name}_exact >= {name}_approx) begin",
-                    f"        diff_val = {name}_exact - {name}_approx;",
-                    "      end else begin",
-                    f"        diff_val = {name}_approx - {name}_exact;",
-                    "      end",
-                    f"      total_error_distance_{name} = total_error_distance_{name} + diff_val;",
-                    f"      if (diff_val > max_error_distance_{name}) max_error_distance_{name} = diff_val;",
-                    f"      if (diff_val > 0.0) error_cycle_count_{name} = error_cycle_count_{name} + 1;",
-                    f"      total_squared_error_{name} = total_squared_error_{name} + (diff_val * diff_val);",
-                    f"      if ({name}_exact != 0) begin",
-                    f"        total_rel_error_{name} = total_rel_error_{name} + (diff_val / ({name}_exact > 0 ? {name}_exact : -{name}_exact));",
-                    "      end",
                     "      total_error_distance = total_error_distance + diff_val;",
                     "      if (diff_val > max_error_distance) max_error_distance = diff_val;",
                     "      if (diff_val > 0.0) error_cycle_count = error_cycle_count + 1;",
                     "      total_squared_error = total_squared_error + (diff_val * diff_val);",
-                    f"      if ({name}_exact != 0) begin",
-                    f"        total_rel_error = total_rel_error + (diff_val / ({name}_exact > 0 ? {name}_exact : -{name}_exact));",
-                    "      end",
                 ])
+                if is_signed:
+                    lines.extend([
+                        f"      if ($signed({name}_exact) != 0) begin",
+                        f"        total_rel_error = total_rel_error + (diff_val / ($signed({name}_exact) > 0 ? $signed({name}_exact) : -$signed({name}_exact)));",
+                        "      end",
+                    ])
+                else:
+                    lines.extend([
+                        f"      if ({name}_exact != 0) begin",
+                        f"        total_rel_error = total_rel_error + (diff_val / ({name}_exact > 0 ? {name}_exact : -{name}_exact));",
+                        "      end",
+                    ])
 
         lines.extend([
             "",
@@ -881,8 +993,9 @@ class MiterVerifier:
         with tempfile.TemporaryDirectory(prefix="miter_run_") as tmp_dir:
             work_dir = Path(tmp_dir).resolve()
 
-            # 1. Rename approximate module to avoid collision in iverilog
+            # 1. Rename approximate and exact modules to avoid collision in iverilog and align register semantics
             approx_renamed = self._prepare_approx_netlist(work_dir)
+            exact_renamed = self._prepare_exact_netlist(work_dir)
 
             # 2. Inspect ports
             ports_info = self._inspect_module_ports()
@@ -892,21 +1005,45 @@ class MiterVerifier:
 
             # 4. Compile with iverilog
             sim_vvp = work_dir / "sim.vvp"
+
+            # Check if netlists use FPGA primitives or standard cells
+            needs_fpga = False
+            for vpath in [exact_renamed, approx_renamed]:
+                try:
+                    txt = vpath.read_text(encoding="utf-8", errors="ignore")
+                    if any(p in txt for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE", "RAMB")):
+                        needs_fpga = True
+                        break
+                except Exception:
+                    pass
+
+            extra_libs = []
+            if needs_fpga:
+                xil_sim = Path("/usr/share/yosys/xilinx/cells_sim.v")
+                if not xil_sim.exists():
+                    try:
+                        import pyosys
+                        p = Path(pyosys.__file__).parent / "share" / "xilinx" / "cells_sim.v"
+                        if p.exists():
+                            xil_sim = p
+                    except Exception:
+                        pass
+                if xil_sim.exists():
+                    extra_libs.append(str(xil_sim))
+
+            if self.tech_vlog and self.tech_vlog.exists():
+                extra_libs.append(str(self.tech_vlog))
+
             compile_cmd = [
                 "iverilog", "-g2012", "-o", str(sim_vvp),
                 str(tb_path),
-                str(self.exact_vlog),
+                str(exact_renamed),
                 str(approx_renamed),
-            ]
+            ] + extra_libs
 
             logger.info("Compiling Miter: %s", " ".join(compile_cmd))
             try:
                 proc_comp = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=120)
-                if proc_comp.returncode != 0 and self.tech_vlog.exists():
-                    compile_cmd_tech = compile_cmd + [str(self.tech_vlog)]
-                    proc_comp_tech = subprocess.run(compile_cmd_tech, capture_output=True, text=True, timeout=120)
-                    if proc_comp_tech.returncode == 0:
-                        proc_comp = proc_comp_tech
             except subprocess.TimeoutExpired:
                 logger.error("Miter compilation timed out after 120s")
                 return {

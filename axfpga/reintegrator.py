@@ -82,9 +82,21 @@ class Reintegrator:
 
         try:
             tech_cmd = f"read_verilog {self.tech_v}; " if self.tech_v.exists() else ""
+            fpga_lib_cmd = ""
+            for p in [self.approx_cone_path, self.top_shell_path]:
+                if p and p.exists():
+                    try:
+                        txt = p.read_text(encoding="utf-8", errors="ignore")
+                        if any(prim in txt for prim in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")):
+                            fpga_lib_cmd = "read_verilog -lib +/xilinx/cells_sim.v; "
+                            break
+                    except Exception:
+                        pass
+
             protect_cmd = "setattr -set keep_hierarchy 1 t:*_lut t:*_rom t:*_ram t:*mem* t:*_table; "
-            flatten_cmd = f"{protect_cmd}flatten; opt_clean; " if flatten else ""
+            flatten_cmd = f"{protect_cmd}flatten; opt_clean; setattr -unset keep_hierarchy; " if flatten else ""
             cmd = (
+                f"{fpga_lib_cmd}"
                 f"read_verilog {self.top_shell_path} {self.approx_cone_path}; "
                 f"{extra_submods_cmd}"
                 f"{tech_cmd}"

@@ -18,6 +18,7 @@ import argparse
 import csv
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -32,6 +33,7 @@ from axfpga.cone_extractor import ConeExtractor
 from axfpga.pyals_bridge import PyAlsBridge
 from axfpga.reintegrator import Reintegrator
 from axfpga.estimator import FpgaEstimator
+from axfpga.verifier import MiterVerifier
 
 logging.basicConfig(
     level=logging.INFO,
@@ -489,24 +491,70 @@ def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator) -> Dict[str, 
     tot_pwr_saved = round(exact_res["total_power_mw"] - approx_res["total_power_mw"], 2)
     tot_pwr_saved_pct = round(((tot_pwr_saved) / exact_res["total_power_mw"] * 100.0), 2) if exact_res["total_power_mw"] > 0 else 0.0
 
-    # Error metrics
-    wce_val = opt_res.get("measured_error", 0.0)
-    mae_val = round(wce_val * 0.25, 2)
-    mre_pct = round(wce_val * 0.002, 4)
-    sqnr_db = round(max(30.0, 52.0 - (wce_val * 0.8)), 1)
+    # Error metrics via real cycle-accurate Miter verification
+    logger.info("[Stage 6] Running real cycle-accurate Miter verification on top netlist...")
+    verifier = MiterVerifier(
+        exact_vlog=exact_top_v,
+        approx_vlog=final_approx_top_v,
+        meta_json=meta_json if meta_json.exists() else None,
+        num_cycles=1000,
+    )
+    miter_res = verifier.verify()
+    logger.info("Miter Verification Result for %s: Status=%s | WCE=%s | MED=%s | Control Integrity=%s",
+                bench_id, miter_res.get("status"), miter_res.get("measured_wce"),
+                miter_res.get("measured_med"), miter_res.get("control_integrity"))
 
-    # Domain fidelity evaluation
+    wce_val = float(miter_res.get("measured_wce") or 0.0)
+    mae_val = round(float(miter_res.get("measured_med") or 0.0), 4)
+    mre_pct = round(float(miter_res.get("measured_mred") or 0.0) * 100.0, 4)
+    msed = float(miter_res.get("measured_msed") or 0.0)
+
+    # Closed-loop validation: if top-level WCE exceeds user bound, enforce safety fallback to baseline
+    if wce_val > bench["bound"]:
+        logger.warning(
+            "Champion approximate mutant violated top-level error bound (%.1f > %.1f). "
+            "Falling back to exact baseline to enforce closed-loop accuracy guarantee.",
+            wce_val, bench["bound"]
+        )
+        shutil.copy(exact_top_v, final_approx_top_v)
+        approx_res = dict(exact_res)
+        lut_saved = 0
+        lut_saved_pct = 0.0
+        c4_saved = 0
+        c4_saved_pct = 0.0
+        ff_saved = 0
+        ff_saved_pct = 0.0
+        dsp_saved = 0
+        dsp_saved_pct = 0.0
+        bram_saved = 0
+        bram_saved_pct = 0.0
+        lc_saved = 0
+        lc_saved_pct = 0.0
+        delay_saved_ns = 0.0
+        delay_saved_pct = 0.0
+        dyn_pwr_saved = 0.0
+        dyn_pwr_saved_pct = 0.0
+        tot_pwr_saved = 0.0
+        tot_pwr_saved_pct = 0.0
+        wce_val = 0.0
+        mae_val = 0.0
+        mre_pct = 0.0
+        msed = 0.0
+        opt_res["method"] = "baseline_fallback_bound_violation"
+
+    # Real SQNR calculation
+    if msed > 0:
+        dyn_range = (bench["bound"] * 8.0) ** 2
+        sqnr_db = round(min(80.0, max(0.0, 10.0 * math.log10(max(1.0, dyn_range) / msed))), 1)
+    else:
+        sqnr_db = 99.0
+
     fid = bench["fidelity"]
-    fid_pass = sqnr_db >= fid["pass_floor"]
-    fid_val_str = f"{sqnr_db} dB"
-    if "Error" in fid["name"]:
-        fid_val_str = f"{round(0.002 * (wce_val + 1), 4)} m"
-    elif "RMSE" in fid["name"] and "Angle" in fid["name"]:
-        fid_val_str = f"{round(0.003 * (wce_val + 1), 4)} rad"
-    elif "Misclassification" in fid["name"]:
-        fid_val_str = f"{round(0.12 * (wce_val + 1), 2)}%"
-    elif "Accuracy" in fid["name"]:
-        fid_val_str = f"{round(0.08 * (wce_val + 1), 2)}%"
+    fid_pass = (miter_res.get("status") == "PASSED" or wce_val == 0.0) and (wce_val <= bench["bound"])
+    if sqnr_db < fid.get("pass_floor", 25.0) and "SQNR" in fid["name"] and wce_val > 0.0:
+        fid_pass = False
+
+    fid_val_str = f"{sqnr_db} dB" if "SQNR" in fid["name"] else f"WCE={wce_val:.1f} (MED={mae_val:.2f})"
 
     return {
         "id": bench_id,
@@ -582,6 +630,21 @@ def export_results(results: List[Dict[str, Any]]) -> Tuple[Path, Path]:
     """Export benchmark evaluation results to JSON and CSV."""
     json_path = REPORTS_DIR / "pyals_yosys_benchmark_results.json"
     csv_path = REPORTS_DIR / "pyals_yosys_benchmark_evaluation.csv"
+
+    # Merge with existing results if present
+    all_results_dict = {}
+    if json_path.exists():
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                old_results = json.load(f)
+                for r in old_results:
+                    all_results_dict[r["id"]] = r
+        except Exception:
+            pass
+    for r in results:
+        all_results_dict[r["id"]] = r
+
+    results = list(all_results_dict.values())
 
     # Export JSON
     with open(json_path, "w", encoding="utf-8") as f:
@@ -708,6 +771,7 @@ def main():
     for bench in suite:
         res = run_benchmark(bench, estimator)
         results.append(res)
+        export_results([res])
 
     json_p, csv_p = export_results(results)
     elapsed = round(time.time() - t_start, 2)

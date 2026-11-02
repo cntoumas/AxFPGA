@@ -112,6 +112,12 @@ class ConeExtractor:
         logger.info("Executing Pyosys selective flattening: %s", post_cmd)
         ys.run_pass(post_cmd, self.design)
 
+        # Clear keep_hierarchy so top_shell.v does not bake keep_hierarchy into Verilog AST
+        ys.run_pass("setattr -unset keep_hierarchy;", self.design)
+        for _, mod in self.design.modules_.items():
+            if ys.IdString("\\keep_hierarchy") in mod.attributes:
+                del mod.attributes[ys.IdString("\\keep_hierarchy")]
+
         top = self.design.top_module()
         if top is None:
             raise RuntimeError(f"Could not find top module in {self.verilog_path}")
@@ -221,6 +227,7 @@ class ConeExtractor:
                         lsb_w = int(lsb_w_val)
                     except (ValueError, TypeError):
                         lsb_w = wire.width
+
                 lsb_w = max(0, min(lsb_w, wire.width))
 
                 relaxed_signals_meta.append({

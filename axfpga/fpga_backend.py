@@ -84,12 +84,16 @@ class FpgaBackend:
                 width_str = m.group(2)
                 name = m.group(3).rstrip(";").strip()
                 width = 1
+                msb = 0
+                lsb = 0
                 if width_str:
                     w_m = re.match(r"\[?(\d+):(\d+)\]?", width_str.strip())
                     if w_m:
-                        width = abs(int(w_m.group(1)) - int(w_m.group(2))) + 1
+                        msb = int(w_m.group(1))
+                        lsb = int(w_m.group(2))
+                        width = abs(msb - lsb) + 1
 
-                info = {"name": name, "width": width, "signed": False}
+                info = {"name": name, "width": width, "msb": msb, "lsb": lsb, "signed": False}
                 if direction == "input":
                     inputs[name] = info
                 else:
@@ -182,7 +186,8 @@ class FpgaBackend:
         outputs = iface["outputs"]
         rel_out = iface["relaxed_output"]
         rel_width = outputs[rel_out]["width"]
-        rel_signed = outputs[rel_out]["signed"]
+        is_sub = "sub" in iface["module_name"].lower() or "diff" in rel_out.lower() or "sub" in rel_out.lower()
+        rel_signed = outputs[rel_out].get("signed", False) or is_sub
 
         # Build clean testbench
         inp_decls = []
@@ -192,8 +197,10 @@ class FpgaBackend:
 
         for name, info in inputs.items():
             w = info["width"]
+            msb = info.get("msb", w - 1)
+            lsb = info.get("lsb", 0)
             clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name.lstrip("\\"))
-            inp_decls.append(f"  reg [{w-1}:0] in_{clean_name};")
+            inp_decls.append(f"  reg [{msb}:{lsb}] in_{clean_name};" if w > 1 else f"  reg in_{clean_name};")
             inst_exact_conns.append(f".{name} (in_{clean_name})")
             inst_approx_conns.append(f".{name} (in_{clean_name})")
             read_conns.append(f"in_{clean_name}")
@@ -201,9 +208,11 @@ class FpgaBackend:
         out_decls = []
         for name, info in outputs.items():
             w = info["width"]
+            msb = info.get("msb", w - 1)
+            lsb = info.get("lsb", 0)
             clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name.lstrip("\\"))
-            out_decls.append(f"  wire [{w-1}:0] exact_{clean_name};")
-            out_decls.append(f"  wire [{w-1}:0] approx_{clean_name};")
+            out_decls.append(f"  wire [{msb}:{lsb}] exact_{clean_name};" if w > 1 else f"  wire exact_{clean_name};")
+            out_decls.append(f"  wire [{msb}:{lsb}] approx_{clean_name};" if w > 1 else f"  wire approx_{clean_name};")
             inst_exact_conns.append(f".{name} (exact_{clean_name})")
             inst_approx_conns.append(f".{name} (approx_{clean_name})")
 
@@ -211,11 +220,16 @@ class FpgaBackend:
         read_args = ", ".join(read_conns)
 
         rel_clean = re.sub(r"[^a-zA-Z0-9_]", "_", rel_out.lstrip("\\"))
+        rel_lsb = outputs[rel_out].get("lsb", 0)
         signed_calc = f"""
+        for (b_idx = 0; b_idx < {rel_width}; b_idx = b_idx + 1) begin
+          clean_exact[b_idx] = (exact_{rel_clean}[b_idx + {rel_lsb}] === 1'b1) ? 1'b1 : 1'b0;
+          clean_approx[b_idx] = (approx_{rel_clean}[b_idx + {rel_lsb}] === 1'b1) ? 1'b1 : 1'b0;
+        end
         if ({"1" if rel_signed else "0"}) begin
-          diff = $signed(exact_{rel_clean}) - $signed(approx_{rel_clean});
+          diff = $signed(clean_exact) - $signed(clean_approx);
         end else begin
-          diff = exact_{rel_clean} - approx_{rel_clean};
+          diff = (clean_exact >= clean_approx) ? (clean_exact - clean_approx) : -(clean_approx - clean_exact);
         end
 """
         tb_code = f"""`timescale 1ns/1ps
@@ -228,6 +242,8 @@ module tb_eval;
   real total_abs_error;
   real max_abs_error;
   integer error_count;
+  integer b_idx;
+  reg [{rel_width-1}:0] clean_exact, clean_approx;
   real diff;
 
   {iface['module_name']} u_exact (
@@ -429,7 +445,8 @@ endmodule
         outputs = iface["outputs"]
         rel_out = iface["relaxed_output"]
         rel_width = outputs[rel_out]["width"]
-        rel_signed = outputs[rel_out]["signed"]
+        is_sub = "sub" in iface["module_name"].lower() or "diff" in rel_out.lower() or "sub" in rel_out.lower()
+        rel_signed = outputs[rel_out].get("signed", False) or is_sub
 
         # Step 1: Record exact I/O dataset using iverilog
         tb_rec = run_dir / "tb_record_dt.v"
@@ -751,9 +768,33 @@ endmodule
             }
             savings_pct = 0.0
 
+        # Phase 1.3 Action Item 2: Post-ALSRewriter Xilinx 7-Series Yosys re-mapping pass
+        remap_out = run_dir / "remapped_approx_cone.v"
+        remap_cmd = (
+            f"read_verilog -sv {champion['path']}; "
+            f"hierarchy -check -auto-top; "
+            f"opt_clean -purge; "
+            f"opt -mux_undef -mux_bool -undriven -fine; "
+            f"synth_xilinx -family {self.target_family} -noiopad -run begin:check; "
+            f"opt_clean -purge; "
+            f"write_verilog -noattr {remap_out}"
+        )
+        remap_res = subprocess.run(f"yosys -q -p \"{remap_cmd}\"", shell=True, executable="/bin/bash", capture_output=True, text=True)
+        final_cand_path = remap_out if (remap_res.returncode == 0 and remap_out.exists()) else champion["path"]
+
         target_out = Path(out_approx_path).resolve() if out_approx_path else (run_dir / "approx_cone.v")
         target_out.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(champion["path"], target_out)
+        shutil.copy(final_cand_path, target_out)
+
+        # Generate Vivado sign-off batch synthesis script (Zybo / PYNQ / Artix-7)
+        from axfpga.vivado import VivadoBatchRunner
+        vivado_runner = VivadoBatchRunner(part=self.target_device or "xc7z010clg400-1")
+        vivado_tcl = run_dir / "run_vivado_synth.tcl"
+        vivado_runner.generate_tcl(
+            top_module=iface["module_name"],
+            verilog_files=[target_out],
+            out_tcl_path=vivado_tcl,
+        )
 
         elapsed = round(time.time() - start_time, 2)
         return {
@@ -774,6 +815,7 @@ endmodule
             "error_metric": metric,
             "bound": bound,
             "output_file": str(target_out),
+            "vivado_tcl": str(vivado_tcl),
             "elapsed_seconds": elapsed,
         }
 

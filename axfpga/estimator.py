@@ -97,6 +97,7 @@ class FpgaEstimator:
         yosys_script = (
             f"{extra_reads}"
             f"read_verilog -sv {netlist}; "
+            f"setattr -unset keep_hierarchy; "
             f"synth_xilinx -family {self.family} -flatten -noiopad {dsp_flag} -top {top_module}; "
             f"{out_vlog_cmd} "
             f"ltp; "
@@ -128,6 +129,16 @@ class FpgaEstimator:
             mod_key = f"\\{top_module}"
             if mod_key in stat_data["modules"]:
                 cells_by_type = stat_data["modules"][mod_key].get("num_cells_by_type", {})
+            elif len(stat_data["modules"]) == 1:
+                # Only one module synthesized (e.g. specialized parameter top)
+                sole_mod = next(iter(stat_data["modules"].values()))
+                cells_by_type = sole_mod.get("num_cells_by_type", {})
+
+        if not cells_by_type:
+            logger.warning(
+                "Yosys stat JSON did not contain cell statistics for module '%s'. Stat data: %s",
+                top_module, stat_data
+            )
 
         # Compute FPGA primitives
         luts_by_type = {k: v for k, v in cells_by_type.items() if k.startswith("LUT")}
@@ -257,23 +268,45 @@ class FpgaEstimator:
 
     @staticmethod
     def _extract_json_stat(stdout: str) -> Optional[Dict[str, Any]]:
-        """Extract the JSON block emitted by Yosys stat -json."""
+        """Extract the JSON block emitted by Yosys stat -json using robust balanced brace parsing."""
         brace_start = stdout.find("{\n   \"creator\":")
         if brace_start == -1:
             brace_start = stdout.find("{\n  \"creator\":")
         if brace_start == -1:
-            # Look for general opening brace containing "creator"
             idx = stdout.find('"creator":')
             if idx != -1:
                 brace_start = stdout.rfind("{", 0, idx)
 
         if brace_start != -1:
-            try:
-                # Find the matching closing brace
-                brace_end = stdout.rfind("}")
-                if brace_end != -1 and brace_end > brace_start:
-                    json_str = stdout[brace_start : brace_end + 1]
-                    return json.loads(json_str)
-            except Exception as e:
-                logger.debug("Failed to parse Yosys stat JSON: %s", e)
+            depth = 0
+            in_string = False
+            escape = False
+            for i in range(brace_start, len(stdout)):
+                char = stdout[i]
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif char == '\\':
+                        escape = True
+                    elif char == '"':
+                        in_string = False
+                else:
+                    if char == '"':
+                        in_string = True
+                    elif char == '{':
+                        depth += 1
+                    elif char == '}':
+                        depth -= 1
+                        if depth == 0:
+                            json_str = stdout[brace_start : i + 1]
+                            try:
+                                return json.loads(json_str)
+                            except json.JSONDecodeError:
+                                try:
+                                    # Fallback: clean stray unescaped single backslashes if any
+                                    cleaned_json = re.sub(r'(?<!\\)\\(?![/"\\bfnrtu]|u[0-9a-fA-F]{4})', r'\\\\', json_str)
+                                    return json.loads(cleaned_json)
+                                except Exception as e:
+                                    logger.debug("Failed to parse Yosys stat JSON: %s", e)
+                                    break
         return None

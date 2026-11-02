@@ -301,6 +301,18 @@ class AxcFlow:
                     fpga_info["lcs_saved"],
                     fpga_info["lc_reduction_pct"],
                 )
+
+                # Phase 1.3: Generate Vivado sign-off batch synthesis script (Zybo / PYNQ / Artix-7)
+                from axfpga.vivado import VivadoBatchRunner
+                vivado_runner = VivadoBatchRunner(part=self.fpga_device or "xc7z010clg400-1")
+                vivado_tcl = self.output_dir / "run_vivado_synth.tcl"
+                vivado_runner.generate_tcl(
+                    top_module=cone_result.get("top_module"),
+                    verilog_files=[final_top_vlog],
+                    out_tcl_path=vivado_tcl,
+                    sdc_file=out_sdc_path if out_sdc_path.exists() else None,
+                )
+                fpga_info["vivado_tcl"] = str(vivado_tcl)
             except Exception as exc:
                 logger.warning("FPGA resource estimation could not be completed: %s", exc)
         else:
