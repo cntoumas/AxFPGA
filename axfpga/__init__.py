@@ -8,7 +8,6 @@ Approximation Engine:
 """
 
 from axfpga.alu_splitter import AluSplitter
-from axfpga.backend import FpgaBackend
 from axfpga.budgeter import CascadedBudgeter
 from axfpga.cone_extractor import ConeExtractor
 from axfpga.estimator import FpgaEstimator
@@ -18,6 +17,7 @@ from axfpga.pyals_bridge import PyAlsBridge
 from axfpga.reintegrator import Reintegrator
 from axfpga.sdc_generator import SdcGenerator
 from axfpga.sweep import ParetoSweeper
+from axfpga.tournament import Champion, Tournament
 from axfpga.trace_extractor import TraceExtractor
 from axfpga.verifier import MiterVerifier
 from axfpga.vivado import VivadoBatchRunner
@@ -31,7 +31,6 @@ __all__ = [
     "AluSplitter",
     "AxcFlow",
     "AxcFpgaFlow",
-    "FpgaBackend",
     "FpgaEstimator",
     "PpgPruner",
     "PyAlsBridge",
@@ -41,6 +40,8 @@ __all__ = [
     "MiterVerifier",
     "TraceExtractor",
     "ParetoSweeper",
+    "Champion",
+    "Tournament",
     "MultiStageBudgeter",
     "VivadoBatchRunner",
 ]

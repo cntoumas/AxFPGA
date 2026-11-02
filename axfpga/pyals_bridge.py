@@ -33,7 +33,7 @@ from pyosys import libyosys as ys
 import pyalslib
 from pyalslib import ALSCatalogCache, ALSGraph, YosysHelper
 
-from axfpga.estimator import FpgaEstimator
+from axfpga.cone_interface import parse_cone_interface
 
 logger = logging.getLogger("axfpga.pyals_bridge")
 
@@ -54,12 +54,6 @@ class PyAlsBridge:
         work_dir: Optional[str | Path] = None,
         catalog_db_path: Optional[str | Path] = None,
         cut_size: int = 4,
-        solver: str = "z3",
-        timeout: int = 60000,
-        target_family: str = "xc7",
-        target_device: str = "xc7a35t",
-        nodsp: bool = False,
-        sim_samples: int = 256,
     ):
         self.cone_vlog = Path(cone_verilog_path).resolve()
         self.meta_json = Path(meta_json_path).resolve() if meta_json_path else None
@@ -72,77 +66,17 @@ class PyAlsBridge:
             self.catalog_db = DEFAULT_CATALOG_PATH
 
         self.cut_size = cut_size
-        self.solver = solver
-        self.timeout = timeout
-        self.target_family = target_family.lower()
-        self.target_device = target_device.lower()
-        self.nodsp = nodsp
-        self.sim_samples = sim_samples
-
-        self.estimator = FpgaEstimator(family=self.target_family, device=self.target_device, nodsp=self.nodsp)
         self.cache = ALSCatalogCache(str(self.catalog_db))
+
+    def __call__(self, iface: Dict[str, Any], work_dir: Path, bound: float) -> List[Dict[str, Any]]:
+        """Tournament Generator adapter."""
+        return self.generate_catalog_candidates(bound=bound, exact_cone_path=iface.get("exact_netlist"))
 
     def _parse_cone_interface(self) -> Dict[str, Any]:
         """Extract module name, ports, widths, and relaxed signal info."""
-        content = self.cone_vlog.read_text(encoding="utf-8")
-        mod_m = re.search(r"module\s+(\w+)\s*\((.*?)\);", content, re.DOTALL)
-        if not mod_m:
-            raise ValueError(f"Could not parse module header from {self.cone_vlog}")
+        return parse_cone_interface(self.cone_vlog, self.meta_json)
 
-        mod_name = mod_m.group(1)
-        raw_ports = [p.strip() for p in mod_m.group(2).split(",") if p.strip()]
-
-        # Scope content strictly to the target module to avoid bleeding ports from sister modules
-        end_idx = content.find("endmodule")
-        mod_content = content[:end_idx + len("endmodule")] if end_idx != -1 else content
-
-        inputs: Dict[str, Dict[str, Any]] = {}
-        outputs: Dict[str, Dict[str, Any]] = {}
-
-        port_pat = re.compile(r"\b(input|output|inout)\s+(?:wire\s+|reg\s+)?(?:signed\s+)?(?:\[([^\]]+)\]\s*)?(\S+)")
-        for line in mod_content.splitlines():
-            line = line.strip()
-            m = port_pat.search(line)
-            if m:
-                direction = m.group(1)
-                width_str = m.group(2)
-                name = m.group(3).rstrip(";").strip()
-                width = 1
-                msb = 0
-                lsb = 0
-                if width_str:
-                    w_m = re.match(r"\[?(\d+):(\d+)\]?", width_str.strip())
-                    if w_m:
-                        msb = int(w_m.group(1))
-                        lsb = int(w_m.group(2))
-                        width = abs(msb - lsb) + 1
-                info = {"name": name, "width": width, "msb": msb, "lsb": lsb, "signed": False}
-                if direction in ("input", "inout"):
-                    inputs[name] = info
-                if direction in ("output", "inout"):
-                    outputs[name] = info
-
-        # Select relaxed output: pick the widest multi-bit output (the main arithmetic bus)
-        multi_outs = [k for k, v in outputs.items() if v["width"] > 1]
-        if multi_outs:
-            relaxed_out = max(multi_outs, key=lambda k: outputs[k]["width"])
-        elif outputs:
-            relaxed_out = list(outputs.keys())[-1]
-        elif inputs:
-            relaxed_out = list(inputs.keys())[-1]
-        else:
-            relaxed_out = "out"
-
-        return {
-            "module_name": mod_name,
-            "ports": raw_ports,
-            "inputs": inputs,
-            "outputs": outputs,
-            "relaxed_output": relaxed_out,
-            "raw_content": mod_content,
-        }
-
-    def generate_catalog_candidates(self, bound: float = 16.0) -> List[Dict[str, Any]]:
+    def generate_catalog_candidates(self, bound: float = 16.0, exact_cone_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
         """Map cone to 4-LUT network and generate approximate candidate netlists from lut_catalog.db.
         
         Applies:
@@ -154,8 +88,8 @@ class PyAlsBridge:
         iface = self._parse_cone_interface()
         top_name = iface["module_name"]
         candidates: List[Dict[str, Any]] = []
-        exact_clean_v = self.work_dir / "exact_cone_clean.v"
-        raw_cone_content = exact_clean_v.read_text(encoding="utf-8") if exact_clean_v.exists() else (self.cone_vlog.read_text(encoding="utf-8") if self.cone_vlog.exists() else "")
+        cone_src = Path(exact_cone_path) if exact_cone_path and Path(exact_cone_path).exists() else self.cone_vlog
+        raw_cone_content = cone_src.read_text(encoding="utf-8") if cone_src.exists() else ""
 
         # Plan 2 (Pillar 1): Structural / Behavioral LOA candidates
         try:
@@ -194,7 +128,6 @@ class PyAlsBridge:
         design = ys.Design()
         lut_netlist = self.work_dir / "exact_lut_cone.v"
         
-        cone_src = exact_clean_v if exact_clean_v.exists() else self.cone_vlog
         ys.run_pass(f"read_verilog -sv {cone_src}; hierarchy -check -top {top_name};", design)
         splitter = AluSplitter(min_width=8, approx_nibble_bits=4)
         split_count = splitter.protect_and_split(design, top_module_name=top_name, as_blackbox=True)
@@ -487,168 +420,3 @@ class PyAlsBridge:
             logger.warning("Could not generate compressor candidates: %s", exc)
 
         return candidates
-
-    def optimize(
-        self,
-        metric: str = "MED",
-        bound: float = 16.0,
-        out_approx_path: Optional[str | Path] = None,
-    ) -> Dict[str, Any]:
-        """Execute pyALS catalog-based rewriting and select champion approximate mutant."""
-        start_t = time.time()
-        logger.info("=== Starting pyALS FPGA Approximate Logic Synthesis ===")
-        logger.info("Cone: %s | Bound: %s=%.2f | Catalog: %s", self.cone_vlog, metric, bound, self.catalog_db)
-
-        iface = self._parse_cone_interface()
-        exact_clean_v = self.work_dir / "exact_cone_clean.v"
-        mod_content = iface["raw_content"]
-
-        # Guard: In extracted prefix adders (e.g. Kogge-Stone, Brent-Kung), bit 0 and MSB carry-out
-        # are emitted on auxiliary ports (e.g. \U0.U0.U0.Po and \U0.U0.U64.Go) while the relaxed output
-        # bus has unassigned floating bits at index 0 and index (width-1).
-        # We tie those unassigned bits to the corresponding ports to ensure cycle-accurate simulation.
-        rel_out = iface.get("relaxed_output")
-        outputs = iface.get("outputs", {})
-        if rel_out and rel_out in outputs:
-            rel_info = outputs[rel_out]
-            rel_w = rel_info["width"]
-            rel_lsb = rel_info.get("lsb", 0)
-            rel_msb = rel_info.get("msb", rel_w - 1)
-            rel_fid = f"{rel_out} " if rel_out.startswith("\\") and not rel_out.endswith(" ") else rel_out
-            clean_rel = rel_out.lower().lstrip("\\")
-            for out_name, out_info in outputs.items():
-                if out_name == rel_out:
-                    continue
-                clean_n = out_name.lower()
-                out_fid = f"{out_name} " if out_name.startswith("\\") and not out_name.endswith(" ") else out_name
-                if out_info["width"] == 1 and ("po" in clean_n or "p0" in clean_n):
-                    if f"assign {rel_fid}[{rel_lsb}]" not in mod_content and f"assign {rel_out} [{rel_lsb}]" not in mod_content:
-                        mod_content = mod_content.replace("endmodule", f"  assign {rel_fid}[{rel_lsb}] = {out_fid};\nendmodule")
-                elif out_info["width"] == 1 and ("go" in clean_n or "g0" in clean_n or "cout" in clean_n or "co" in clean_n):
-                    if f"assign {rel_fid}[{rel_msb}]" not in mod_content and f"assign {rel_out} [{rel_msb}]" not in mod_content:
-                        mod_content = mod_content.replace("endmodule", f"  assign {rel_fid}[{rel_msb}] = {out_fid};\nendmodule")
-                elif clean_n.endswith(f".{clean_rel}") or clean_n == clean_rel:
-                    for b in range(rel_lsb, rel_msb + 1):
-                        if f"assign {rel_fid}[{b}]" not in mod_content and f"assign {rel_out} [{b}]" not in mod_content:
-                            mod_content = mod_content.replace("endmodule", f"  assign {rel_fid}[{b}] = {out_fid}[{b}];\nendmodule")
-                        if f"assign {out_fid}[{b}]" not in mod_content and f"assign {out_name} [{b}]" not in mod_content:
-                            mod_content = mod_content.replace("endmodule", f"  assign {out_fid}[{b}] = {rel_fid}[{b}];\nendmodule")
-        exact_clean_v.write_text(mod_content, encoding="utf-8")
-
-        base_res = self.estimator.evaluate_netlist(exact_clean_v, top_module=iface["module_name"])
-        base_lcs = base_res.get("estimated_lcs", 100)
-        base_lut = base_res.get("total_luts", 0)
-        base_c4 = base_res.get("carry4", 0)
-
-        # Generate catalog candidates
-        candidates = self.generate_catalog_candidates(bound=bound)
-        if not candidates:
-            logger.warning("No pyALS catalog candidates generated; falling back to exact baseline")
-            target_out = Path(out_approx_path) if out_approx_path else (self.work_dir / "approx_cone.v")
-            shutil.copy(exact_clean_v, target_out)
-            return {
-                "status": "FALLBACK_BASELINE",
-                "method": "exact_baseline",
-                "strategy": "pyals",
-                "baseline_lcs": base_lcs,
-                "optimized_lcs": base_lcs,
-                "lc_savings_pct": 0.0,
-                "measured_error": 0.0,
-                "output_file": str(target_out),
-            }
-
-        # Simulate & Evaluate candidates
-        from axfpga.backend import FpgaBackend
-        fb = FpgaBackend(cone_verilog_path=self.cone_vlog, work_dir=self.work_dir, sim_samples=self.sim_samples)
-        stim_hex = fb._prepare_stimulus_dataset(iface, self.work_dir)
-
-        valid_mutants = []
-        for cand in candidates:
-            sim_res = fb._simulate_candidate(exact_clean_v, cand["path"], iface, stim_hex, metric, self.work_dir)
-            err_val = sim_res.get(metric.lower(), 1e9)
-            if err_val <= bound:
-                fpga_res = self.estimator.evaluate_netlist(cand["path"], top_module=iface["module_name"])
-                cand_lcs = fpga_res.get("estimated_lcs", 9999)
-                cand_lut = fpga_res.get("total_luts", 0)
-                cand_c4 = fpga_res.get("carry4", 0)
-                valid_mutants.append({
-                    "name": cand["name"],
-                    "strategy": "pyals",
-                    "path": cand["path"],
-                    "error": err_val,
-                    "estimated_lcs": cand_lcs,
-                    "total_luts": cand_lut,
-                    "carry4": cand_c4,
-                })
-
-        beneficial_mutants = [m for m in valid_mutants if m["estimated_lcs"] < base_lcs or m["total_luts"] < base_lut]
-        if beneficial_mutants:
-            beneficial_mutants.sort(key=lambda m: (m["estimated_lcs"], m["total_luts"], m["error"]))
-            champ = beneficial_mutants[0]
-            champ_lcs = champ["estimated_lcs"]
-            savings_pct = round(((base_lcs - champ_lcs) / base_lcs) * 100.0, 2) if base_lcs > 0 else 0.0
-            logger.info("pyALS CHAMPION: %s | LCs %d -> %d (%.1f%% savings) | %s=%.2f",
-                        champ["name"], base_lcs, champ_lcs, savings_pct, metric, champ["error"])
-        else:
-            logger.warning("No pyALS candidate achieved positive savings meeting bound %s=%.2f; falling back to exact baseline", metric, bound)
-            champ = {
-                "name": "baseline_fallback",
-                "strategy": "pyals",
-                "path": exact_clean_v,
-                "error": 0.0,
-                "estimated_lcs": base_lcs,
-                "total_luts": base_lut,
-                "carry4": base_c4,
-            }
-            savings_pct = 0.0
-
-        # Phase 1.3 Action Item 2: Dedicated Xilinx 7-Series Yosys re-mapping pass
-        remap_out = self.work_dir / "remapped_approx_cone.v"
-        remap_cmd = (
-            f"read_verilog -sv {champ['path']}; "
-            f"hierarchy -check -auto-top; "
-            f"opt_clean -purge; "
-            f"opt -mux_undef -mux_bool -undriven -fine; "
-            f"synth_xilinx -family {self.target_family} -noiopad -run begin:check; "
-            f"opt_clean -purge; "
-            f"write_verilog -noattr {remap_out}"
-        )
-        remap_res = subprocess.run(f"yosys -q -p \"{remap_cmd}\"", shell=True, executable="/bin/bash", capture_output=True, text=True)
-        final_cand_path = remap_out if (remap_res.returncode == 0 and remap_out.exists()) else champ["path"]
-
-        target_out = Path(out_approx_path) if out_approx_path else (self.work_dir / "approx_cone.v")
-        shutil.copy(final_cand_path, target_out)
-
-        # Generate Vivado sign-off batch synthesis script (Zybo / PYNQ / Artix-7)
-        from axfpga.vivado import VivadoBatchRunner
-        vivado_runner = VivadoBatchRunner(part=self.target_device or "xc7z010clg400-1")
-        vivado_tcl = self.work_dir / "run_vivado_synth.tcl"
-        vivado_runner.generate_tcl(
-            top_module=iface["module_name"],
-            verilog_files=[target_out],
-            out_tcl_path=vivado_tcl,
-        )
-
-        elapsed = round(time.time() - start_t, 2)
-
-        return {
-            "status": "SUCCESS",
-            "method": champ["name"],
-            "strategy": "pyals",
-            "target": "fpga",
-            "family": self.target_family,
-            "device": self.target_device,
-            "baseline_lcs": base_lcs,
-            "optimized_lcs": champ["estimated_lcs"],
-            "lc_savings_pct": savings_pct,
-            "exact_carry4": base_c4,
-            "approx_carry4": champ["carry4"],
-            "exact_luts": base_lut,
-            "approx_luts": champ["total_luts"],
-            "measured_error": champ["error"],
-            "error_metric": metric,
-            "bound": bound,
-            "output_file": str(target_out),
-            "vivado_tcl": str(vivado_tcl),
-            "elapsed_seconds": elapsed,
-        }

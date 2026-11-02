@@ -2,7 +2,7 @@
 
 Coordinates the complete pipeline:
 1. RTLIL Relaxability Analysis & Cone Extraction (Pyosys)
-2. Approximate Logic Synthesis Optimization (AxLS)
+2. pyALS Candidate Tournament (champion approximate cone)
 3. Parent Shell & Approximated Cone Re-integration (Yosys)
 4. Attribute-Driven SDC Timing Relaxation Generation
 5. Automated Miter Verification (Icarus Verilog)
@@ -13,7 +13,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import shutil
 import sys
+from dataclasses import asdict
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -23,6 +25,7 @@ from axfpga.estimator import FpgaEstimator
 from axfpga.pyals_bridge import PyAlsBridge
 from axfpga.reintegrator import Reintegrator
 from axfpga.sdc_generator import SdcGenerator
+from axfpga.tournament import Tournament
 from axfpga.trace_extractor import TraceExtractor
 from axfpga.verifier import MiterVerifier
 
@@ -146,9 +149,6 @@ class AxcFlow:
         if self.override_bound is not None:
             primary_bound = self.override_bound
 
-        lsb_candidates = [int(s["lsb_width"]) for s in relaxed_signals if s.get("lsb_width") is not None]
-        primary_lsb = max(lsb_candidates) if lsb_candidates else None
-
         # -------------------------------------------------------------
         # STEP 1.5: Realistic Pipeline Trace Extraction
         # -------------------------------------------------------------
@@ -181,47 +181,31 @@ class AxcFlow:
         # STEP 2: Logic Approximation (Native FPGA or pyALS)
         # -------------------------------------------------------------
         approx_cone_vlog = self.output_dir / "approx_cone.v"
-        
-        if self.target == "fpga" or self.axc_method != "pyals":
-            logger.info("--- Step 2: Native FPGA Approximate Logic Synthesis ---")
-            fpga_work_dir = self.output_dir / "fpga_workspace"
-            from axfpga.backend import FpgaBackend
 
-            backend = FpgaBackend(
-                cone_verilog_path=submod_vlog,
-                meta_json_path=meta_json_path,
-                target_family=self.fpga_family,
-                target_device=self.fpga_device,
-                nodsp=self.fpga_nodsp,
-                work_dir=fpga_work_dir,
-                trace_hex_path=trace_hex_path,
-                sim_samples=self.sim_samples,
-            )
-            approx_result = backend.optimize(
-                metric=primary_metric,
-                bound=primary_bound,
-                lsb_width=primary_lsb,
-                method=self.axc_method,
-                out_approx_path=approx_cone_vlog,
-            )
-        else:
-            logger.info("--- Step 2: pyALS Catalog-Based AIG-Rewriting Approximation ---")
-            pyals_work_dir = self.output_dir / "pyals_workspace"
-            bridge = PyAlsBridge(
-                cone_verilog_path=submod_vlog,
-                meta_json_path=meta_json_path,
-                work_dir=pyals_work_dir,
-                target_family=self.fpga_family,
-                target_device=self.fpga_device,
-                nodsp=self.fpga_nodsp,
-                sim_samples=self.sim_samples,
-            )
-
-            approx_result = bridge.optimize(
-                metric=primary_metric,
-                bound=primary_bound,
-                out_approx_path=approx_cone_vlog,
-            )
+        logger.info("--- Step 2: pyALS Candidate Tournament ---")
+        if self.axc_method.lower() not in ("auto", "pyals", "als"):
+            logger.warning("Approximation method '%s' is deprecated; AxFPGA runs pyALS only.", self.axc_method)
+        tournament_dir = self.output_dir / "tournament"
+        bridge = PyAlsBridge(
+            cone_verilog_path=submod_vlog,
+            meta_json_path=meta_json_path,
+            work_dir=tournament_dir,
+        )
+        tournament = Tournament(
+            estimator=FpgaEstimator(family=self.fpga_family, device=self.fpga_device, nodsp=self.fpga_nodsp),
+            work_dir=tournament_dir,
+            sim_samples=self.sim_samples,
+        )
+        # TODO(refactor/tournament step 6): pass the real bound to the generator.
+        champion = tournament.run(
+            cone_vlog=submod_vlog,
+            meta_json=meta_json_path,
+            metric=primary_metric,
+            bound=primary_bound,
+            generators=[lambda iface, wd, _bound: bridge(iface, wd, 16.0)],
+            trace_hex=trace_hex_path,
+        )
+        shutil.copy(champion.netlist_path, approx_cone_vlog)
 
         # -------------------------------------------------------------
         # STEP 3: Re-Integration
@@ -352,14 +336,18 @@ class AxcFlow:
                 "metric": primary_metric,
                 "bound": primary_bound,
                 "method": self.axc_method,
-                "champion_method": approx_result.get("champion_method", self.axc_method),
-                "leaderboard": approx_result.get("leaderboard", []),
+                "champion_method": champion.name,
+                "leaderboard": [asdict(e) for e in champion.leaderboard],
+                "fell_back": champion.fell_back,
+                "baseline_lcs": champion.baseline_lcs,
+                "optimized_lcs": champion.lcs,
+                "lc_savings_pct": champion.lc_savings_pct,
                 "relaxed_signals": relaxed_signals,
-                "measured_error": approx_result.get("measured_error"),
-                "pruned_nodes": approx_result.get("pruned_nodes_count"),
-                "initial_area": approx_result.get("initial_area"),
-                "approx_area": approx_result.get("final_area"),
-                "area_savings_percent": approx_result.get("area_savings_percent"),
+                "measured_error": champion.error,
+                "pruned_nodes": None,
+                "initial_area": None,
+                "approx_area": None,
+                "area_savings_percent": None,
             },
             "power": power_info,
             "fpga": fpga_info,

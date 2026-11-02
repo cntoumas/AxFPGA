@@ -33,6 +33,7 @@ from axfpga.cone_extractor import ConeExtractor
 from axfpga.pyals_bridge import PyAlsBridge
 from axfpga.reintegrator import Reintegrator
 from axfpga.estimator import FpgaEstimator
+from axfpga.tournament import Tournament
 from axfpga.verifier import MiterVerifier
 
 logging.basicConfig(
@@ -380,21 +381,34 @@ def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator) -> Dict[str, 
     else:
         # Stage 3: pyALS Optimization with Salvatore Barone's lut_catalog.db
         logger.info("[Stage 3] Optimizing safe cone via pyALS Catalog Rewriter...")
+        pyals_dir = bench_work / "pyals_run"
+        cone_meta = meta_json if meta_json.exists() else None
         bridge = PyAlsBridge(
             cone_verilog_path=cone_v,
-            meta_json_path=meta_json if meta_json.exists() else None,
-            work_dir=bench_work / "pyals_run",
+            meta_json_path=cone_meta,
+            work_dir=pyals_dir,
             cut_size=4,
-            target_family="xc7",
-            target_device="xc7a35t",
-            nodsp=False,
+        )
+        tournament = Tournament(
+            estimator=FpgaEstimator(family="xc7", device="xc7a35t", nodsp=False),
+            work_dir=pyals_dir,
             sim_samples=64,
         )
-        opt_res = bridge.optimize(
+        champion = tournament.run(
+            cone_vlog=cone_v,
+            meta_json=cone_meta,
             metric=bench["metric"],
             bound=bench["bound"],
-            out_approx_path=approx_cone_v,
+            generators=[bridge],
         )
+        shutil.copy(champion.netlist_path, approx_cone_v)
+        opt_res = {
+            "method": champion.name,
+            "baseline_lcs": champion.baseline_lcs,
+            "optimized_lcs": champion.lcs,
+            "lc_savings_pct": champion.lc_savings_pct,
+            "measured_error": champion.error,
+        }
         logger.info("pyALS Result: Method=%s | Cone LCs: %d -> %d (%.1f%% savings) | Error=%.2f",
                     opt_res.get("method"), opt_res.get("baseline_lcs", 0),
                     opt_res.get("optimized_lcs", 0), opt_res.get("lc_savings_pct", 0.0),

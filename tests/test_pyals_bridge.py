@@ -36,19 +36,3 @@ def test_pyals_candidate_generation(tmp_path: Path):
     assert "strategy" in first
     assert first["strategy"] == "pyals"
     assert Path(first["path"]).exists()
-
-
-def test_pyals_optimize_flow(tmp_path: Path):
-    out_approx = tmp_path / "approx_mac.v"
-    bridge = PyAlsBridge(
-        cone_verilog_path=MAC_CONE,
-        work_dir=tmp_path,
-        catalog_db_path=CATALOG_DB,
-        sim_samples=50,
-    )
-    res = bridge.optimize(metric="MED", bound=500.0, out_approx_path=out_approx)
-    assert res["status"] in ("SUCCESS", "FALLBACK_BASELINE")
-    assert out_approx.exists()
-    assert "baseline_lcs" in res
-    assert "optimized_lcs" in res
-    assert "lc_savings_pct" in res
