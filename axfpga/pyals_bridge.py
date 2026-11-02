@@ -76,7 +76,7 @@ class PyAlsBridge:
         """Extract module name, ports, widths, and relaxed signal info."""
         return parse_cone_interface(self.cone_vlog, self.meta_json)
 
-    def generate_catalog_candidates(self, bound: float = 16.0, exact_cone_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
+    def generate_catalog_candidates(self, bound: float, exact_cone_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
         """Map cone to 4-LUT network and generate approximate candidate netlists from lut_catalog.db.
         
         Applies:

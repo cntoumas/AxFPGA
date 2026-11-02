@@ -196,13 +196,12 @@ class AxcFlow:
             work_dir=tournament_dir,
             sim_samples=self.sim_samples,
         )
-        # TODO(refactor/tournament step 6): pass the real bound to the generator.
         champion = tournament.run(
             cone_vlog=submod_vlog,
             meta_json=meta_json_path,
             metric=primary_metric,
             bound=primary_bound,
-            generators=[lambda iface, wd, _bound: bridge(iface, wd, 16.0)],
+            generators=[bridge],
             trace_hex=trace_hex_path,
         )
         shutil.copy(champion.netlist_path, approx_cone_vlog)

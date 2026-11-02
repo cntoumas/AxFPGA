@@ -27,7 +27,7 @@ def test_pyals_candidate_generation(tmp_path: Path):
         catalog_db_path=CATALOG_DB,
         cut_size=4,
     )
-    cands = bridge.generate_catalog_candidates()
+    cands = bridge.generate_catalog_candidates(bound=16.0)
     assert isinstance(cands, list)
     # At least some catalog or constant pruning candidates should be generated
     assert len(cands) > 0

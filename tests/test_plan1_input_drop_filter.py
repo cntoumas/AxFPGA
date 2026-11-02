@@ -62,7 +62,7 @@ def test_pyals_bridge_emits_input_drop_candidates(tmp_path: Path):
         catalog_db_path=CATALOG_DB,
         cut_size=4,
     )
-    cands = bridge.generate_catalog_candidates()
+    cands = bridge.generate_catalog_candidates(bound=16.0)
     names = [c["name"] for c in cands]
 
     # At least some candidates with input-dropping or carry protection should be emitted
