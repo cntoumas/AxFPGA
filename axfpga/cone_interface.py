@@ -7,6 +7,7 @@ agree on which output is the relaxed one.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -53,9 +54,20 @@ def parse_cone_interface(cone_vlog: str | Path, meta_json: Optional[str | Path] 
             if direction in ("output", "inout"):
                 outputs[name] = info
 
-    # Select relaxed output: pick the widest multi-bit output (the main arithmetic bus)
+    # Select relaxed output: the annotated (* axc_relax *) wire if it is a Cone output,
+    # else the widest multi-bit output (the main arithmetic bus)
+    meta_wire = None
+    if meta_json and Path(meta_json).exists():
+        try:
+            meta = json.loads(Path(meta_json).read_text(encoding="utf-8"))
+            meta_wire = next((s.get("wire") for s in meta.get("relaxed_signals", []) if s.get("wire") in outputs), None)
+        except (OSError, ValueError):
+            meta_wire = None
+
     multi_outs = [k for k, v in outputs.items() if v["width"] > 1]
-    if multi_outs:
+    if meta_wire:
+        relaxed_out = meta_wire
+    elif multi_outs:
         relaxed_out = max(multi_outs, key=lambda k: outputs[k]["width"])
     elif outputs:
         relaxed_out = list(outputs.keys())[-1]
@@ -63,6 +75,12 @@ def parse_cone_interface(cone_vlog: str | Path, meta_json: Optional[str | Path] 
         relaxed_out = list(inputs.keys())[-1]
     else:
         relaxed_out = "out"
+
+    # Signedness of the relaxed output, detected from signed declarations in the Cone
+    if relaxed_out in outputs and any(
+        tok in mod_content for tok in ("$signed", "wire signed", "output signed", "output reg signed")
+    ):
+        outputs[relaxed_out]["signed"] = True
 
     return {
         "module_name": mod_name,
