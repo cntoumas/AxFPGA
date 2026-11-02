@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from axfpga.fpga_estimator import FpgaEstimator
+from axfpga.estimator import FpgaEstimator
 
 logger = logging.getLogger("fpga_backend")
 

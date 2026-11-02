@@ -2,7 +2,7 @@
 
 from pathlib import Path
 import pytest
-from axfpga.fpga_estimator import FpgaEstimator
+from axfpga.estimator import FpgaEstimator
 
 
 @pytest.fixture
