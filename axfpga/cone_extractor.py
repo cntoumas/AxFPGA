@@ -212,13 +212,17 @@ class ConeExtractor:
                 if wire.has_attribute(attr_metric_id):
                     metric = str(decode_attr(wire.attributes[attr_metric_id], "MED"))
 
-                bound = 0.05
+                # No default: a missing bound used to become 0.05, i.e. an integer WCE bound of 0.
+                bound: Optional[float] = None
                 if wire.has_attribute(attr_bound_id):
-                    bound_val = decode_attr(wire.attributes[attr_bound_id], 0.05)
+                    bound_val = decode_attr(wire.attributes[attr_bound_id], None)
                     try:
                         bound = float(bound_val)
                     except (ValueError, TypeError):
-                        bound = 0.05
+                        raise ValueError(f"axc_bound of '{wname.lstrip(chr(92))}' is not a number: {bound_val!r}")
+                else:
+                    logger.warning("(* axc_relax *) wire '%s' has no axc_bound; a bound must be given "
+                                   "(attribute or override) before approximation", wname.lstrip("\\"))
 
                 lsb_w = wire.width
                 if wire.has_attribute(attr_lsb_id):

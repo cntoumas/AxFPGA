@@ -26,11 +26,45 @@ from typing import Any, Dict, List, Optional
 
 from pyosys import libyosys as ys
 
+from axfpga.certification import ProofStatus
 from axfpga.config import xilinx_cells_sim, yosys_cmd
 from axfpga.parallel import YOSYS_LOCK, yosys_serialized
 
 logger = logging.getLogger("verifier")
 
+
+
+
+def match_cone_output(wire: str, outputs: List[str]) -> str:
+    """Cone output port carrying the relaxed wire ``wire``.
+
+    Extracted Cone ports keep the hierarchical path of the wire (``U0.U0.S`` for ``S``,
+    ``M2.out`` for ``out``), so the port is the one named ``wire`` or ending in ``.wire``.
+    Exactly one port must match: a silent guess could prove the bound on the wrong output.
+    """
+    if not wire:
+        raise ValueError("relaxed signal has no wire name")
+    names = {o.lstrip("\\") : o for o in outputs}
+    exact = [o for n, o in names.items() if n == wire]
+    if exact:
+        return exact[0]
+    suffix = [o for n, o in names.items() if n.endswith("." + wire)]
+    if len(suffix) == 1:
+        return suffix[0]
+    raise ValueError(f"relaxed wire '{wire}' matches {len(suffix)} Cone outputs {sorted(outputs)}; expected exactly one")
+
+
+def classify_sat_proof(output: str) -> ProofStatus:
+    """Outcome of a Yosys `sat -prove` run from its log (non-induction proofs)."""
+    if "SAT proof finished - no model found: SUCCESS!" in output:
+        return ProofStatus.PROVEN
+    if "TIMEOUT!" in output or "Interrupted SAT solver" in output:
+        return ProofStatus.TIMEOUT
+    if "model found: FAIL!" in output or "SAT model found." in output:
+        return ProofStatus.FALSIFIED
+    if "ERROR:" in output:
+        return ProofStatus.ERROR
+    return ProofStatus.INCONCLUSIVE
 
 
 class FormalControlVerifier:
@@ -226,7 +260,6 @@ class FormalControlVerifier:
                     needs_fpga = True
 
             fpga_cmd = "read_verilog -overwrite +/xilinx/cells_sim.v;\n" if needs_fpga else ""
-            ys_script_path = work_dir / "formal_ctrl.ys"
 
             lines = [
                 fpga_cmd,
@@ -242,96 +275,69 @@ class FormalControlVerifier:
             is_sequential = clk_name is not None
             if is_sequential:
                 lines.append("async2sync")
-
-            lines.extend([
-                "flatten",
-                "opt_clean",
-            ])
-
-            if is_sequential:
-                rst_args = ""
-                if rst_name:
-                    rst_val = "0" if rst_active_low else "1"
-                    rst_args = f"-set-at 1 {rst_name} {rst_val} -unset-at 1 {rst_name} "
-                sat_cmd = (
-                    f"sat -timeout {self.timeout} -seq {self.induction_depth} "
-                    f"-set-init-zero {rst_args}-tempinduct -prove ctrl_mismatch 1'b0"
-                )
-            else:
-                sat_cmd = f"sat -timeout {self.timeout} -show ctrl_mismatch -prove ctrl_mismatch 1'b0"
-
-            lines.append(sat_cmd)
-            ys_script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-
-            logger.info("Executing Formal Control SAT proof with induction depth %d (timeout=%ds)", self.induction_depth, self.timeout)
-            proc = subprocess.run(yosys_cmd() + ["-s", str(ys_script_path)], capture_output=True, text=True, timeout=self.timeout + 30)
-
-            stdout = proc.stdout
-            stderr = proc.stderr
-            combined = stdout + "\n" + stderr
+            lines.extend(["flatten", "opt_clean"])
 
             checked_names = [o["name"] for o in precise_outputs]
+            method = "bmc+temporal_induction" if is_sequential else "combinational_sat"
 
-            if "Induction step proven: SUCCESS!" in combined or "SAT proof finished - no model found: SUCCESS!" in combined:
+            def run_sat(sat_cmd: str, tag: str) -> str:
+                script = work_dir / f"formal_ctrl_{tag}.ys"
+                script.write_text("\n".join(lines + [sat_cmd]) + "\n", encoding="utf-8")
+                try:
+                    proc = subprocess.run(yosys_cmd() + ["-s", str(script)], capture_output=True, text=True,
+                                          timeout=self.timeout + 30)
+                except subprocess.TimeoutExpired:
+                    return "Interrupted SAT solver: TIMEOUT!"
+                return proc.stdout + "\n" + proc.stderr
+
+            def result(status: ProofStatus, log: str, **extra: Any) -> Dict[str, Any]:
+                res = {"status": status.value, "method": method, "signals_checked": checked_names}
+                res.update(extra)
+                res["log"] = log[-1200:]
+                return res
+
+            if not is_sequential:
+                logger.info("Executing Formal Control SAT proof (combinational, timeout=%ds)", self.timeout)
+                out = run_sat(f"sat -timeout {self.timeout} -show ctrl_mismatch -prove ctrl_mismatch 1'b0", "comb")
+                status = classify_sat_proof(out)
+                extra = {"counterexample": self._parse_sat_model(out)} if status is ProofStatus.FALSIFIED else {}
+                logger.info("Formal Control Equivalence %s for signals %s", status.value, checked_names)
+                return result(status, out, proven_forever=status is ProofStatus.PROVEN, **extra)
+
+            rst_args = ""
+            if rst_name:
+                rst_val = "0" if rst_active_low else "1"
+                rst_args = f"-set-at 1 {rst_name} {rst_val} -unset-at 1 {rst_name} "
+            n = self.induction_depth
+
+            # 1. Bounded model check of cycles 1..N from power-up (registers zero, reset in cycle 1).
+            #    `sat -seq N -tempinduct` alone would never check these first N cycles.
+            logger.info("Executing Formal Control bounded check over %d cycles (timeout=%ds)", n, self.timeout)
+            bmc = run_sat(f"sat -timeout {self.timeout} -seq {n} -set-init-zero {rst_args}"
+                          f"-show ctrl_mismatch -prove ctrl_mismatch 1'b0", "bmc")
+            bmc_status = classify_sat_proof(bmc)
+            if bmc_status is ProofStatus.FALSIFIED:
+                logger.error("Formal Control Corruption DETECTED within %d cycles of reset", n)
+                return result(bmc_status, bmc, cycles_checked=n, proven_forever=False,
+                              counterexample=self._parse_sat_model(bmc))
+            if bmc_status is not ProofStatus.PROVEN:
+                logger.warning("Formal Control bounded check %s", bmc_status.value)
+                return result(bmc_status, bmc, cycles_checked=0, proven_forever=False)
+
+            # 2. Temporal induction from cycle 1: the property holds in every reachable state.
+            logger.info("Executing Formal Control temporal induction (timeout=%ds)", self.timeout)
+            ind = run_sat(f"sat -timeout {self.timeout} -seq 1 -set-init-zero {rst_args}"
+                          f"-tempinduct -prove ctrl_mismatch 1'b0", "induct")
+            if "Induction step proven: SUCCESS!" in ind:
                 logger.info("Formal Control Equivalence PROVEN for signals %s", checked_names)
-                return {
-                    "status": "PROVEN",
-                    "method": "temporal_induction" if is_sequential else "combinational_sat",
-                    "signals_checked": checked_names,
-                    "induction_depth": self.induction_depth if is_sequential else None,
-                    "proven_forever": True,
-                    "log": stdout[-800:],
-                }
-
-            if "TIMEOUT!" in combined or "Interrupted SAT solver" in combined:
-                logger.warning("Formal Control SAT proof timed out after %ds", self.timeout)
-                return {
-                    "status": "TIMEOUT",
-                    "method": "temporal_induction" if is_sequential else "combinational_sat",
-                    "signals_checked": checked_names,
-                    "induction_depth": self.induction_depth if is_sequential else None,
-                    "proven_forever": False,
-                    "log": stdout[-800:],
-                }
-
-            if "model found" in combined or "FAIL!" in combined:
-                logger.error("Formal Control Corruption DETECTED by SAT solver!")
-                cex_dict = self._parse_sat_model(stdout)
-                return {
-                    "status": "FALSIFIED",
-                    "method": "temporal_induction" if is_sequential else "combinational_sat",
-                    "signals_checked": checked_names,
-                    "counterexample": cex_dict,
-                    "proven_forever": False,
-                    "log": stdout[-1200:],
-                }
-
-            # If induction step was unproven but base case held, run bounded check
-            if is_sequential and "Base case for induction" in combined:
-                logger.info("Induction step unproven; running bounded check to depth %d", self.induction_depth)
-                bmc_script = work_dir / "formal_bmc.ys"
-                bmc_lines = lines[:-1] + [
-                    f"sat -timeout {self.timeout} -seq {self.induction_depth} -set-init-zero {rst_args}-prove ctrl_mismatch 1'b0"
-                ]
-                bmc_script.write_text("\n".join(bmc_lines) + "\n", encoding="utf-8")
-                proc_bmc = subprocess.run(yosys_cmd() + ["-s", str(bmc_script)], capture_output=True, text=True, timeout=self.timeout + 30)
-                if "SAT proof finished - no model found: SUCCESS!" in (proc_bmc.stdout + proc_bmc.stderr):
-                    return {
-                        "status": "PROVEN_BOUNDED",
-                        "method": "bounded_model_checking",
-                        "signals_checked": checked_names,
-                        "cycles_checked": self.induction_depth,
-                        "proven_forever": False,
-                        "log": proc_bmc.stdout[-800:],
-                    }
-
-            logger.warning("Formal Control SAT proof inconclusive:\n%s", combined[-800:])
-            return {
-                "status": "INCONCLUSIVE",
-                "signals_checked": checked_names,
-                "error": stderr or "SAT returned without explicit proof result",
-                "log": combined[-800:],
-            }
+                return result(ProofStatus.PROVEN, ind, cycles_checked=n, proven_forever=True)
+            if "base case: FAIL!" in ind:
+                logger.error("Formal Control Corruption DETECTED beyond %d cycles of reset", n)
+                return result(ProofStatus.FALSIFIED, ind, cycles_checked=n, proven_forever=False,
+                              counterexample=self._parse_sat_model(ind))
+            induction = ProofStatus.TIMEOUT if classify_sat_proof(ind) is ProofStatus.TIMEOUT else ProofStatus.INCONCLUSIVE
+            logger.warning("Formal Control induction %s; holds for the first %d cycles only (BOUNDED)", induction.value, n)
+            return result(ProofStatus.BOUNDED, ind, cycles_checked=n, proven_forever=False, induction=induction.value)
 
     def _parse_sat_model(self, stdout: str) -> Dict[str, Any]:
         """Extract signal assignments from SAT model counterexample output."""
@@ -475,25 +481,19 @@ class FormalWceVerifier:
         viol_terms = []
         out_map = {o["name"]: o for o in outputs}
 
+        if not self.target_signals:
+            raise ValueError("FormalWceVerifier: no relaxed signal to check (meta_json has no relaxed_signals)")
         for idx, sig in enumerate(self.target_signals):
-            wire_name = sig.get("wire", "")
-            if not wire_name or wire_name not in out_map:
-                # If target signal name is not a direct port, match any output port
-                if outputs:
-                    wire_name = outputs[0]["name"]
-                else:
-                    continue
-
+            wire_name = match_cone_output(sig.get("wire", ""), list(out_map))
             port_meta = out_map[wire_name]
             width = port_meta["width"]
             is_signed = port_meta.get("is_signed", False) or self.signed_outputs
 
-            # Determine integer bound for WCE comparison
-            raw_bound = sig.get("bound", 16.0)
-            try:
-                bound_val = int(round(float(raw_bound)))
-            except (ValueError, TypeError):
-                bound_val = 16
+            # Integer bound for the WCE comparison: required, never defaulted
+            raw_bound = sig.get("bound")
+            if raw_bound is None:
+                raise ValueError(f"FormalWceVerifier: relaxed signal '{sig.get('wire')}' has no axc_bound")
+            bound_val = int(round(float(raw_bound)))
 
             ext_w = width + 1
             if is_signed:
@@ -559,42 +559,18 @@ class FormalWceVerifier:
             stderr = proc.stderr
             combined = stdout + "\n" + stderr
 
-            if "SAT proof finished - no model found: SUCCESS!" in combined:
-                logger.info("Formal WCE Bound PROVEN for cone '%s'", cone_module)
-                return {
-                    "status": "PROVEN",
-                    "wce_bound_satisfied": True,
-                    "target_signals": self.target_signals,
-                    "cone_module": cone_module,
-                    "log": stdout[-800:],
-                }
-
-            if "TIMEOUT!" in combined or "Interrupted SAT solver" in combined:
-                logger.warning("Formal WCE SAT proof timed out after %ds", self.timeout)
-                return {
-                    "status": "TIMEOUT",
-                    "wce_bound_satisfied": None,
-                    "cone_module": cone_module,
-                    "log": stdout[-800:],
-                }
-
-            if "SAT proof finished - model found: FAIL!" in combined or "SAT model found." in combined:
-                logger.warning("Formal WCE Bound VIOLATION found by SAT solver for cone '%s'", cone_module)
-                return {
-                    "status": "FALSIFIED",
-                    "wce_bound_satisfied": False,
-                    "cone_module": cone_module,
-                    "log": stdout[-1200:],
-                }
-
-            logger.warning("Formal WCE proof inconclusive:\n%s", combined[-800:])
-            return {
-                "status": "INCONCLUSIVE",
-                "wce_bound_satisfied": None,
+            status = classify_sat_proof(combined)
+            logger.info("Formal WCE bound %s for cone '%s'", status.value, cone_module)
+            res: Dict[str, Any] = {
+                "status": status.value,
+                "wce_bound_satisfied": {ProofStatus.PROVEN: True, ProofStatus.FALSIFIED: False}.get(status),
+                "target_signals": self.target_signals,
                 "cone_module": cone_module,
-                "error": stderr or "SAT returned without explicit proof result",
-                "log": combined[-800:],
+                "log": combined[-1200:],
             }
+            if status in (ProofStatus.INCONCLUSIVE, ProofStatus.ERROR):
+                res["error"] = stderr or "SAT returned without explicit proof result"
+            return res
 
 
 class MiterVerifier:
@@ -1097,9 +1073,15 @@ class MiterVerifier:
             bound_passed = True
             metric_results = []
             for sig in self.meta.get("relaxed_signals", []):
-                bound = float(sig.get("bound", 1e9))
                 metric = sig.get("metric", "MED").upper()
                 wire_name = sig.get("wire", "unknown")
+                if sig.get("bound") is None:
+                    logger.error("Relaxed signal '%s' has no axc_bound; its error cannot be checked", wire_name)
+                    bound_passed = False
+                    metric_results.append({"wire": wire_name, "metric": metric, "bound": None, "measured": None,
+                                           "satisfied": False, "error": "no axc_bound"})
+                    continue
+                bound = float(sig["bound"])
 
                 wire_metrics = sig_metrics.get(wire_name, {})
                 if metric in wire_metrics:

@@ -122,10 +122,18 @@ class AxcFlow:
 
         primary_metric = relaxed_signals[0].get("metric", "MED") if relaxed_signals else "MED"
         # When multiple relaxed signals exist, target the most restrictive (minimum) bound
-        bounds_list = [float(s["bound"]) for s in relaxed_signals if "bound" in s]
-        primary_bound = min(bounds_list) if bounds_list else 0.05
+        bounds_list = [float(s["bound"]) for s in relaxed_signals if s.get("bound") is not None]
         if self.override_bound is not None:
             primary_bound = self.override_bound
+            for s in relaxed_signals:          # verification uses the same bound as the Tournament
+                if s.get("bound") is None:
+                    s["bound"] = primary_bound
+            meta_json_path.write_text(json.dumps(cone_result, indent=2), encoding="utf-8")
+        elif bounds_list and len(bounds_list) == len(relaxed_signals):
+            primary_bound = min(bounds_list)
+        else:
+            missing = [s.get("wire") for s in relaxed_signals if s.get("bound") is None]
+            raise ValueError(f"(* axc_relax *) signal(s) {missing} have no axc_bound; annotate them or pass --bound")
 
         # -------------------------------------------------------------
         # STEP 1.5: Realistic Pipeline Trace Extraction
