@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import subprocess
+from axfpga.config import yosys_cmd
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -118,7 +119,7 @@ class FpgaEstimator:
             f"stat -json"
         )
 
-        cmd = ["yosys", "-p", yosys_script]
+        cmd = yosys_cmd() + ["-p", yosys_script]
         proc = subprocess.run(
             cmd,
             stdout=subprocess.PIPE,

@@ -22,6 +22,7 @@ import logging
 import math
 import re
 import subprocess
+from axfpga.config import yosys_cmd
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -133,13 +134,7 @@ class PpgPruner:
                 f"proc; opt_clean -purge; opt_expr; opt_merge; clean; "
                 f"write_verilog -noattr {opt_cand_path}"
             )
-            res = subprocess.run(
-                f"yosys -q -p \"{ys_cmd}\"",
-                shell=True,
-                executable="/bin/bash",
-                capture_output=True,
-                text=True,
-            )
+            res = subprocess.run(yosys_cmd() + ["-q", "-p", ys_cmd], capture_output=True, text=True)
 
             final_cand_path = opt_cand_path if (res.returncode == 0 and opt_cand_path.exists()) else raw_cand_path
             theoretical_wce = self.calculate_worst_case_error(k)

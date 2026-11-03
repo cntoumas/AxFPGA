@@ -23,9 +23,11 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from axfpga.config import xilinx_cells_sim
+
 logger = logging.getLogger("axfpga.activity_power")
 
-XILINX_CELLS_SIM = Path("/usr/share/yosys/xilinx/cells_sim.v")
+XILINX_CELLS_SIM = xilinx_cells_sim()   # pinned Yosys share (pyosys wheel)
 CYCLE_NS = 10
 
 # Energy assumptions (pJ), 7-Series @ VCCINT = 1.0 V, including local + general routing of the driven net.

@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pyosys import libyosys as ys
 
+from axfpga.config import yosys_cmd
+
 logger = logging.getLogger("axfpga.alu_splitter")
 
 
@@ -507,7 +509,7 @@ class AluSplitter:
                 f"proc; opt_clean -purge; opt_expr; opt_merge; clean; "
                 f"write_verilog -noattr {cand_opt_v}"
             )
-            res = subprocess.run(f"yosys -q -p \"{ys_cmd}\"", shell=True, executable="/bin/bash", capture_output=True, text=True)
+            res = subprocess.run(yosys_cmd() + ["-q", "-p", ys_cmd], capture_output=True, text=True)
             final_cand = cand_opt_v if (res.returncode == 0 and cand_opt_v.exists()) else cand_raw_v
 
             candidates.append({

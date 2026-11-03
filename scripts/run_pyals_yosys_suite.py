@@ -47,6 +47,7 @@ from axfpga.tournament import Tournament
 from axfpga.verifier import FormalControlVerifier, FormalWceVerifier, MiterVerifier
 from axfpga.activity_power import estimate_dynamic_power, run_vector_sim
 from axfpga.parallel import Cancelled, depth_search, first_accepted, yosys_serialized
+from axfpga.config import axbench_root, yosys_cmd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import axbench_apps  # noqa: E402
@@ -58,8 +59,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("pyals_yosys_suite")
 
-AXBENCH_ROOT = Path("/home/christos-ntoumas/Downloads/axbench-verilog/circuits").resolve()
-AXFPGA_ROOT = Path("/home/christos-ntoumas/AxFPGA").resolve()
+AXBENCH_ROOT = axbench_root() / "circuits"          # AXFPGA_AXBENCH_ROOT overrides (see axfpga/config.py)
+AXFPGA_ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = AXFPGA_ROOT / "build" / "pyals_yosys_run"
 REPORTS_DIR = AXFPGA_ROOT / "reports"
 FPGA_PART = "xc7z010clg400-1"
@@ -438,7 +439,7 @@ def _normalize_rtl(src: Path, top: str, out: Path) -> Path:
         p in src.read_text(errors="ignore") for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")) else ""
     cmd = (f"{lib}read_verilog -sv {src}; hierarchy -check -top {top}; setattr -unset keep_hierarchy; "
            f"proc; flatten; opt_clean; write_verilog -noattr {out}")
-    res = subprocess.run(["yosys", "-q", "-p", cmd], capture_output=True, text=True)
+    res = subprocess.run(yosys_cmd() + ["-q", "-p", cmd], capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"Yosys normalization of {src.name} failed: {res.stderr[-1500:]}")
     return out

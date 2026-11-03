@@ -108,7 +108,7 @@ class ConeExtractor:
                 logger.info("Preserving memory/lookup hierarchy for module: %s", mod_name.str())
 
         # Step 3: Flatten combinational/arithmetic logic (preserving protected memory modules)
-        post_cmd = f"setattr -set keep_hierarchy 1 t:*_lut t:*_rom t:*_ram t:*mem* t:*_table; flatten; delete t:$scopeinfo; opt_expr{decomp_cmd}; opt_clean"
+        post_cmd = f"setattr -set keep_hierarchy 1 t:*_lut t:*_rom t:*_ram t:*mem* t:*_table; flatten; opt_expr{decomp_cmd}; opt_clean"
         logger.info("Executing Pyosys selective flattening: %s", post_cmd)
         ys.run_pass(post_cmd, self.design)
 

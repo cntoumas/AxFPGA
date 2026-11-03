@@ -17,6 +17,8 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from axfpga.config import vivado_bin as config_vivado_bin
+
 logger = logging.getLogger("axfpga.vivado")
 
 SUPPORTED_FPGA_PARTS: Dict[str, str] = {
@@ -51,7 +53,7 @@ class VivadoBatchRunner:
         vivado_bin: Optional[str] = None,
     ):
         self.part = resolve_part(part)
-        self.vivado_bin = vivado_bin or shutil.which("vivado")
+        self.vivado_bin = vivado_bin or shutil.which(config_vivado_bin())
 
     def generate_tcl(
         self,

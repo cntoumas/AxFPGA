@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from axfpga.config import yosys_cmd
+
 from axfpga.cone_interface import parse_cone_interface
 from axfpga.estimator import FpgaEstimator
 
@@ -222,7 +224,7 @@ class Tournament:
             f"opt_clean -purge; "
             f"write_verilog -noattr {remap_out}"
         )
-        res = subprocess.run(f"yosys -q -p \"{remap_cmd}\"", shell=True, executable="/bin/bash", capture_output=True, text=True)
+        res = subprocess.run(yosys_cmd() + ["-q", "-p", remap_cmd], capture_output=True, text=True)
         return remap_out if (res.returncode == 0 and remap_out.exists()) else Path(netlist)
 
     def _prepare_stimulus_dataset(self, iface: Dict[str, Any], run_dir: Path, trace_hex: Optional[str | Path] = None) -> Path:

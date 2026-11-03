@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from pyosys import libyosys as ys
 
+from axfpga.config import xilinx_cells_sim, yosys_cmd
 from axfpga.parallel import YOSYS_LOCK, yosys_serialized
 
 logger = logging.getLogger("verifier")
@@ -273,7 +274,7 @@ class FormalControlVerifier:
             ys_script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
             logger.info("Executing Formal Control SAT proof with induction depth %d (timeout=%ds)", self.induction_depth, self.timeout)
-            proc = subprocess.run(["yosys", "-s", str(ys_script_path)], capture_output=True, text=True, timeout=self.timeout + 30)
+            proc = subprocess.run(yosys_cmd() + ["-s", str(ys_script_path)], capture_output=True, text=True, timeout=self.timeout + 30)
 
             stdout = proc.stdout
             stderr = proc.stderr
@@ -323,7 +324,7 @@ class FormalControlVerifier:
                     f"sat -timeout {self.timeout} -seq {self.induction_depth} -set-init-zero {rst_args}-prove ctrl_mismatch 1'b0"
                 ]
                 bmc_script.write_text("\n".join(bmc_lines) + "\n", encoding="utf-8")
-                proc_bmc = subprocess.run(["yosys", "-s", str(bmc_script)], capture_output=True, text=True, timeout=self.timeout + 30)
+                proc_bmc = subprocess.run(yosys_cmd() + ["-s", str(bmc_script)], capture_output=True, text=True, timeout=self.timeout + 30)
                 if "SAT proof finished - no model found: SUCCESS!" in (proc_bmc.stdout + proc_bmc.stderr):
                     return {
                         "status": "PROVEN_BOUNDED",
@@ -570,7 +571,7 @@ class FormalWceVerifier:
             ys_script_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
             logger.info("Executing Formal WCE SAT proof on cone '%s' (timeout=%ds)", cone_module, self.timeout)
-            proc = subprocess.run(["yosys", "-s", str(ys_script_path)], capture_output=True, text=True, timeout=self.timeout + 30)
+            proc = subprocess.run(yosys_cmd() + ["-s", str(ys_script_path)], capture_output=True, text=True, timeout=self.timeout + 30)
 
             stdout = proc.stdout
             stderr = proc.stderr
@@ -1033,15 +1034,7 @@ class MiterVerifier:
 
             extra_libs = []
             if needs_fpga:
-                xil_sim = Path("/usr/share/yosys/xilinx/cells_sim.v")
-                if not xil_sim.exists():
-                    try:
-                        import pyosys
-                        p = Path(pyosys.__file__).parent / "share" / "xilinx" / "cells_sim.v"
-                        if p.exists():
-                            xil_sim = p
-                    except Exception:
-                        pass
+                xil_sim = xilinx_cells_sim()
                 if xil_sim.exists():
                     extra_libs.append(str(xil_sim))
 

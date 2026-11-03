@@ -18,9 +18,11 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+
+from axfpga.config import axbench_root
 from PIL import Image
 
-PEPPERS = Path("/home/christos-ntoumas/Downloads/axbench-verilog/scripts/images/peppers.png")
+PEPPERS = axbench_root() / "scripts" / "images" / "peppers.png"   # AXFPGA_AXBENCH_ROOT overrides
 SEED = 2026
 POWER_VECTORS = 2000
 

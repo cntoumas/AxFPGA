@@ -7,7 +7,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PY="${PY:-/home/christos-ntoumas/AxSYS/.venv/bin/python}"
+PY="${PY:-$ROOT/.venv/bin/python}"          # project venv (uv sync --extra dev)
 REPORTS="$ROOT/reports"
 LOG="$ROOT/build/axbench_zybo_run.log"
 
