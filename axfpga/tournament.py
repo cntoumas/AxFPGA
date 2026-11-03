@@ -139,7 +139,8 @@ class Tournament:
 
         beneficial = [m for m in valid if m["lcs"] < base_lcs or m["luts"] < base_luts]
         if beneficial:
-            beneficial.sort(key=lambda m: (m["lcs"], m["luts"], m["error"]))
+            # The name is the final key: equal-cost candidates must not depend on generation order.
+            beneficial.sort(key=lambda m: (m["lcs"], m["luts"], m["error"], m["name"]))
             champ = beneficial[0]
             fell_back = False
             logger.info("CHAMPION: %s | LCs %d -> %d | %s=%.2f", champ["name"], base_lcs, champ["lcs"], metric, champ["error"])

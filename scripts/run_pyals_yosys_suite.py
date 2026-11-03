@@ -371,6 +371,12 @@ ERROR_BUDGET: Dict[str, Dict[str, Optional[float]]] = {
 }
 
 # Fixes for defects in the AxBench sources: (file name, old text, new text), applied to private copies.
+# Benchmarks left out of a default run (still runnable with -b <id>), with the reason shown in the report.
+EXCLUDED: Dict[str, str] = {
+    "sobel_npu": "out of memory on the 15 GB evaluation machine (Yosys synthesis ~6.7 GB, iverilog miter >9 GB "
+                 "for the 42k-LUT patched design); revisited in Phase 3/4",
+}
+
 RTL_PATCHES: Dict[str, List[Tuple[str, str, str]]] = {
     # sobel.nn perceptron_fixed instantiates qmult without clk/rst: every multiplier register is unclocked
     # and the design synthesizes to a constant. Wire clk through; tie the active-high rst low.
@@ -927,6 +933,11 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
         "Approximation: pyALS Candidate Tournament. LC = LUT + 2 x CARRY4. "
         "Utilization % is relative to the xc7z010 (17,600 LUT, 35,200 FF, 80 DSP48E1, 60 BRAM36).",
         "",
+    ]
+    excluded = [b for b in define_benchmark_suite() if b["id"] in EXCLUDED and b["id"] not in {r["id"] for r in results}]
+    if excluded:
+        md += ["Excluded from this run: " + "; ".join(f"**{b['name']}** ({EXCLUDED[b['id']]})" for b in excluded) + ".", ""]
+    md += [
         "## 1. Utilization: baseline vs approximate",
         "",
         "| Benchmark | Champion | LUT | FF | DSP | BRAM | CARRY4 | LC | LC saved |",
@@ -1128,6 +1139,11 @@ def main():
         if not suite:
             logger.error("No benchmark matches %s", args.benchmark)
             sys.exit(2)
+    else:
+        for b in suite:
+            if b["id"] in EXCLUDED:
+                logger.warning("Skipping %s: %s (run it with -b %s)", b["id"], EXCLUDED[b["id"]], b["id"])
+        suite = [b for b in suite if b["id"] not in EXCLUDED]
 
     t0 = time.time()
     failed: List[str] = []

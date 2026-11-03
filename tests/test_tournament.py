@@ -97,3 +97,25 @@ def test_pyals_generator_on_mac(tmp_path: Path):
     assert champ.netlist_path.exists()
     assert champ.baseline_lcs > 0
     assert len(champ.leaderboard) > 0
+
+
+def _aliased_generator(*names: str):
+    """Every candidate is the same 2-bit truncation under a different name (equal cost and error)."""
+
+    def gen(iface, work_dir: Path, bound: float):
+        cands = []
+        for n in names:
+            p = work_dir / f"cand_{n}.v"
+            p.write_text(_truncated(2))
+            cands.append({"name": n, "path": p})
+        return cands
+
+    return gen
+
+
+@pytest.mark.parametrize("order", [("zeta", "alpha", "mid"), ("alpha", "mid", "zeta"), ("mid", "zeta", "alpha")])
+def test_equal_cost_candidates_rank_by_name_not_generation_order(tmp_path: Path, cone: Path, order):
+    t = Tournament(FpgaEstimator(family="xc7", device="xc7a35t"), tmp_path / "work", sim_samples=256)
+    champ = t.run(cone, None, metric="WCE", bound=6.0, generators=[_aliased_generator(*order)])
+    assert champ.name == "alpha"
+    assert [a.name for a in champ.alternatives] == ["alpha", "mid", "zeta"]
