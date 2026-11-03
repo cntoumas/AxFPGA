@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from pyosys import libyosys as ys
 
-from pyalslib import YosysHelper, ALSGraph, ALSRewriter
+from axfpga.pyals_ext import dead_cells, fpga_cost, prep_design, remap_xilinx_7series
+from pyalslib import YosysHelper, ALSGraph
 from axfpga.vivado import VivadoBatchRunner, resolve_part
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -30,18 +31,18 @@ def test_alsgraph_dead_cells_and_fpga_cost():
 
         helper = YosysHelper()
         helper.read_sources(f.name, "test_logic")
-        helper.prep_design(cut_size=4, protect_carry_chains=False)
+        prep_design(helper, cut_size=4, protect_carry_chains=False)
 
         graph = ALSGraph(helper.design)
         cells = graph.get_cells()
         assert len(cells) > 0
 
         # Baseline cost with exact spec (no configuration overrides)
-        base_cost = graph.get_fpga_cost(configuration={})
+        base_cost = fpga_cost(graph, configuration={})
         assert base_cost > 0.0
 
         # Dead cells with no drops should be empty
-        dead = graph.get_dead_cells(configuration={})
+        dead = dead_cells(graph, configuration={})
         assert len(dead) == 0
 
 
@@ -101,7 +102,7 @@ def test_vivado_report_parsing():
 
 
 def test_alsrewriter_xilinx_remap():
-    """Verify ALSRewriter.remap_xilinx_7series executes cleanly."""
+    """Verify remap_xilinx_7series (pyals_ext) executes cleanly."""
     vlog = """
     module small (input a, b, output y);
         assign y = a ^ b;
@@ -113,8 +114,7 @@ def test_alsrewriter_xilinx_remap():
 
         helper = YosysHelper()
         helper.read_sources(f.name, "small")
-        helper.prep_design(cut_size=4, protect_carry_chains=False)
+        prep_design(helper, cut_size=4, protect_carry_chains=False)
 
-        rewriter = ALSRewriter(helper, problem=None)
-        # Should execute opt_clean; opt; synth_xilinx -family xc7 -noiopad -run map_ffs:check; opt_clean without error
-        rewriter.remap_xilinx_7series()
+        # Should execute opt_clean; opt; synth_xilinx -family xc7 -noiopad -run begin:check; opt_clean without error
+        remap_xilinx_7series(helper.design)

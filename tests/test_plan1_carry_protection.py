@@ -6,6 +6,7 @@ import pytest
 from pyosys import libyosys as ys
 
 from axfpga.alu_splitter import AluSplitter
+from axfpga.pyals_ext import prep_design
 from pyalslib import YosysHelper
 
 
@@ -75,7 +76,7 @@ def test_carry_truncation_constant_ci():
 
 
 def test_yosys_helper_protect_carry_chains():
-    """Verify YosysHelper.prep_design respects carry chain protection."""
+    """Verify prep_design (pyals_ext) protects carry chains."""
     vlog = """
     module add_sub (
         input [15:0] a,
@@ -93,7 +94,7 @@ def test_yosys_helper_protect_carry_chains():
         helper = YosysHelper()
         helper.read_sources(f.name, "add_sub")
         # Default prep_design protects carry chains
-        helper.prep_design(cut_size=4, protect_carry_chains=True, approx_nibble_bits=4)
+        prep_design(helper, cut_size=4, protect_carry_chains=True, approx_nibble_bits=4)
 
         mod = helper.design.top_module()
         cell_types = [c.type.str() for c in mod.selected_cells()]

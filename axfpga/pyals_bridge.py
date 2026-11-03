@@ -29,9 +29,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 from pyosys import libyosys as ys
 
-# Core pyalslib imports
-import pyalslib
-from pyalslib import ALSCatalogCache, ALSGraph, YosysHelper
+from axfpga.pyals_ext import FpgaCatalogCache
 
 from axfpga.cone_interface import parse_cone_interface
 
@@ -66,7 +64,7 @@ class PyAlsBridge:
             self.catalog_db = DEFAULT_CATALOG_PATH
 
         self.cut_size = cut_size
-        self.cache = ALSCatalogCache(str(self.catalog_db))
+        self.cache = FpgaCatalogCache(str(self.catalog_db))
 
     def __call__(self, iface: Dict[str, Any], work_dir: Path, bound: float) -> List[Dict[str, Any]]:
         """Tournament Generator adapter."""

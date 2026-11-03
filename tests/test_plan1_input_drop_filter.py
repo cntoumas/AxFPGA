@@ -3,7 +3,7 @@
 from pathlib import Path
 import pytest
 
-from pyalslib import ALSCatalogCache, get_active_inputs, get_dropped_inputs_count
+from axfpga.pyals_ext import FpgaCatalogCache, get_active_inputs, get_dropped_inputs_count
 from axfpga.pyals_bridge import PyAlsBridge
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -39,7 +39,7 @@ def test_cofactor_equality_and_support_set():
 
 def test_catalog_input_dropping_query():
     """Verify ALSCatalogCache returns candidate LUTs that reduce active inputs."""
-    cache = ALSCatalogCache(str(CATALOG_DB))
+    cache = FpgaCatalogCache(str(CATALOG_DB))
     # Query a 4-input representative that has approximate entries dropping inputs
     spec = "0000000000000111"  # active inputs = 4
     orig_act = len(get_active_inputs(spec))
