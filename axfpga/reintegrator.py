@@ -19,9 +19,6 @@ from axfpga.parallel import yosys_serialized
 
 logger = logging.getLogger("reintegrator")
 
-TECH_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "third_party" / "AxLS" / "templates"
-TECH_V_DEFAULT = TECH_TEMPLATES_DIR / "NanGate15nm.v"
-
 
 class Reintegrator:
     """Re-integrates parent wrapper shell with approximated subcircuits."""
@@ -31,26 +28,10 @@ class Reintegrator:
         top_shell_path: str | Path,
         approx_cone_path: str | Path,
         extracted_cone_path: Optional[str | Path] = None,
-        tech: str = "NanGate15nm",
-        tech_verilog_path: Optional[str | Path] = None,
     ):
         self.top_shell_path = Path(top_shell_path).resolve()
         self.approx_cone_path = Path(approx_cone_path).resolve()
         self.extracted_cone_path = Path(extracted_cone_path).resolve() if extracted_cone_path else None
-
-        if tech_verilog_path:
-            self.tech_v = Path(tech_verilog_path).resolve()
-        else:
-            # Check if tech is a direct file path or library name
-            tech_as_path = Path(tech)
-            if tech_as_path.is_file():
-                self.tech_v = tech_as_path.resolve()
-            else:
-                candidate = TECH_TEMPLATES_DIR / f"{tech}.v"
-                self.tech_v = candidate.resolve() if candidate.is_file() else TECH_V_DEFAULT
-
-        if not self.tech_v.exists():
-            logger.warning("Technology Verilog file not found: %s", self.tech_v)
 
     @yosys_serialized
     def reintegrate(self, out_final_path: str | Path, flatten: bool = False) -> Dict[str, Any]:
@@ -84,7 +65,6 @@ class Reintegrator:
                 logger.warning("Could not extract auxiliary submodules from %s: %s", self.extracted_cone_path, exc)
 
         try:
-            tech_cmd = f"read_verilog {self.tech_v}; " if self.tech_v.exists() else ""
             fpga_lib_cmd = ""
             for p in [self.approx_cone_path, self.top_shell_path]:
                 if p and p.exists():
@@ -102,7 +82,6 @@ class Reintegrator:
                 f"{fpga_lib_cmd}"
                 f"read_verilog {self.top_shell_path} {self.approx_cone_path}; "
                 f"{extra_submods_cmd}"
-                f"{tech_cmd}"
                 f"hierarchy -check -auto-top; "
                 f"proc; opt_clean; "
                 f"{flatten_cmd}"
@@ -134,8 +113,6 @@ def main() -> None:
     parser.add_argument("--top-shell", required=True, help="Path to top_shell.v")
     parser.add_argument("--approx-cone", required=True, help="Path to approx_cone.v")
     parser.add_argument("--extracted-cone", default=None, help="Path to extracted_cone.v (optional fallback for multi-cone partitions)")
-    parser.add_argument("-t", "--tech", default="NanGate15nm", help="Standard cell tech library name")
-    parser.add_argument("--tech-v", default=None, help="Path to standard cell Verilog library")
     parser.add_argument("-o", "--output", required=True, help="Path for final_approx_top.v")
     parser.add_argument("--flatten", action="store_true", help="Flatten hierarchy into a single module")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
@@ -147,8 +124,6 @@ def main() -> None:
         top_shell_path=args.top_shell,
         approx_cone_path=args.approx_cone,
         extracted_cone_path=args.extracted_cone,
-        tech=args.tech,
-        tech_verilog_path=args.tech_v,
     )
     result = reintegrator.reintegrate(out_final_path=args.output, flatten=args.flatten)
     print(json.dumps(result, indent=2))

@@ -31,8 +31,6 @@ from axfpga.parallel import YOSYS_LOCK, yosys_serialized
 
 logger = logging.getLogger("verifier")
 
-TECH_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "third_party" / "AxLS" / "templates"
-TECH_V_DEFAULT = TECH_TEMPLATES_DIR / "NanGate15nm.v"
 
 
 class FormalControlVerifier:
@@ -43,14 +41,12 @@ class FormalControlVerifier:
         exact_vlog: str | Path,
         approx_vlog: str | Path,
         meta_json: Optional[str | Path] = None,
-        tech_vlog: Optional[str | Path] = None,
         induction_depth: int = 5,
         timeout: int = 60,
     ):
         self.exact_vlog = Path(exact_vlog).resolve()
         self.approx_vlog = Path(approx_vlog).resolve()
         self.meta_json = Path(meta_json).resolve() if meta_json else None
-        self.tech_vlog = Path(tech_vlog).resolve() if tech_vlog else None
         self.induction_depth = induction_depth
         self.timeout = timeout
 
@@ -222,26 +218,20 @@ class FormalControlVerifier:
             work_dir = Path(tmp_dir).resolve()
             miter_path = self.generate_ctrl_miter(work_dir, sig_info)
 
-            # Only load tech library if netlist references standard cell primitives
-            needs_tech = False
+            # Load the Xilinx primitive models only if a netlist is already mapped
             needs_fpga = False
             for vpath in [self.exact_vlog, self.approx_vlog]:
                 txt = vpath.read_text(encoding="utf-8", errors="ignore")
-                if "_X1" in txt or "_X2" in txt or "DFF" in txt:
-                    needs_tech = True
                 if any(p in txt for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")):
                     needs_fpga = True
 
-            tech_cmd = f"read_verilog -overwrite {self.tech_vlog};\n" if (needs_tech and self.tech_vlog and self.tech_vlog.exists()) else ""
             fpga_cmd = "read_verilog -overwrite +/xilinx/cells_sim.v;\n" if needs_fpga else ""
             ys_script_path = work_dir / "formal_ctrl.ys"
 
             lines = [
-                tech_cmd,
                 fpga_cmd,
                 f"read_verilog -sv -overwrite {self.exact_vlog}",
                 f"rename {top_name} {top_name}_exact",
-                tech_cmd,
                 fpga_cmd,
                 f"read_verilog -sv -overwrite {self.approx_vlog}",
                 f"rename {top_name} {top_name}_approx",
@@ -365,14 +355,12 @@ class FormalWceVerifier:
         approx_cone_vlog: str | Path,
         meta_json: Optional[str | Path] = None,
         target_signals: Optional[List[Dict[str, Any]]] = None,
-        tech_vlog: Optional[str | Path] = None,
         timeout: int = 60,
         signed_outputs: bool = False,
     ):
         self.exact_cone_vlog = Path(exact_cone_vlog).resolve()
         self.approx_cone_vlog = Path(approx_cone_vlog).resolve()
         self.meta_json = Path(meta_json).resolve() if meta_json else None
-        self.tech_vlog = Path(tech_vlog).resolve() if tech_vlog else None
         self.timeout = timeout
 
         self.meta: Dict[str, Any] = {}
@@ -539,26 +527,20 @@ class FormalWceVerifier:
             work_dir = Path(tmp_dir).resolve()
             miter_path = self.generate_wce_miter(work_dir, ports_info)
 
-            # Only load tech library if netlist references standard cell primitives
-            needs_tech = False
+            # Load the Xilinx primitive models only if a netlist is already mapped
             needs_fpga = False
             for vpath in [self.exact_cone_vlog, self.approx_cone_vlog]:
                 txt = vpath.read_text(encoding="utf-8", errors="ignore")
-                if "_X1" in txt or "_X2" in txt or "DFF" in txt:
-                    needs_tech = True
                 if any(p in txt for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")):
                     needs_fpga = True
 
-            tech_cmd = f"read_verilog -overwrite {self.tech_vlog};\n" if (needs_tech and self.tech_vlog and self.tech_vlog.exists()) else ""
             fpga_cmd = "read_verilog -overwrite +/xilinx/cells_sim.v;\n" if needs_fpga else ""
             ys_script_path = work_dir / "formal_wce.ys"
 
             lines = [
-                tech_cmd,
                 fpga_cmd,
                 f"read_verilog -sv -overwrite {self.exact_cone_vlog}",
                 f"rename {cone_module} {cone_module}_exact",
-                tech_cmd,
                 fpga_cmd,
                 f"read_verilog -sv -overwrite {self.approx_cone_vlog}",
                 f"rename {cone_module} {cone_module}_approx",
@@ -623,8 +605,6 @@ class MiterVerifier:
         exact_vlog: str | Path,
         approx_vlog: str | Path,
         meta_json: Optional[str | Path] = None,
-        tech: str = "NanGate15nm",
-        tech_vlog: Optional[str | Path] = None,
         num_cycles: int = 500,
         enable_formal: bool = True,
         formal_timeout: int = 60,
@@ -636,19 +616,6 @@ class MiterVerifier:
         self.approx_vlog = Path(approx_vlog).resolve()
         self.meta_json = Path(meta_json).resolve() if meta_json else None
         self.sim_timeout = sim_timeout
-
-        if tech_vlog:
-            self.tech_vlog = Path(tech_vlog).resolve()
-        else:
-            tech_as_path = Path(tech)
-            if tech_as_path.is_file():
-                self.tech_vlog = tech_as_path.resolve()
-            else:
-                candidate = TECH_TEMPLATES_DIR / f"{tech}.v"
-                self.tech_vlog = candidate.resolve() if candidate.is_file() else TECH_V_DEFAULT
-
-        if not self.tech_vlog.exists():
-            logger.warning("Technology Verilog file not found: %s", self.tech_vlog)
 
         self.num_cycles = num_cycles
         self.enable_formal = enable_formal
@@ -682,7 +649,6 @@ class MiterVerifier:
         """Rename approximate top module to avoid collision in iverilog."""
         renamed_vlog = work_dir / f"{self.top_module}_approx.v"
         design = ys.Design()
-        tech_cmd = f"read_verilog -overwrite {self.tech_vlog}; " if (self.tech_vlog and self.tech_vlog.exists()) else ""
         fpga_cmd = ""
         try:
             txt = self.approx_vlog.read_text(encoding="utf-8", errors="ignore")
@@ -692,7 +658,7 @@ class MiterVerifier:
             pass
         cmd = (
             f"{fpga_cmd}"
-            f"read_verilog -overwrite {self.approx_vlog}; {tech_cmd}"
+            f"read_verilog -overwrite {self.approx_vlog}; "
             f"hierarchy -check -top {self.top_module}; "
             f"setattr -unset keep_hierarchy; "
             f"proc; flatten; opt_clean; "
@@ -707,7 +673,6 @@ class MiterVerifier:
         """Flatten and rename exact top module to avoid collision in iverilog and normalize register semantics."""
         renamed_vlog = work_dir / f"{self.top_module}_exact.v"
         design = ys.Design()
-        tech_cmd = f"read_verilog -overwrite {self.tech_vlog}; " if (self.tech_vlog and self.tech_vlog.exists()) else ""
         fpga_cmd = ""
         try:
             txt = self.exact_vlog.read_text(encoding="utf-8", errors="ignore")
@@ -717,7 +682,7 @@ class MiterVerifier:
             pass
         cmd = (
             f"{fpga_cmd}"
-            f"read_verilog -overwrite {self.exact_vlog}; {tech_cmd}"
+            f"read_verilog -overwrite {self.exact_vlog}; "
             f"hierarchy -check -top {self.top_module}; "
             f"setattr -unset keep_hierarchy; "
             f"proc; flatten; opt_clean; "
@@ -1038,8 +1003,6 @@ class MiterVerifier:
                 if xil_sim.exists():
                     extra_libs.append(str(xil_sim))
 
-            if self.tech_vlog and self.tech_vlog.exists():
-                extra_libs.append(str(self.tech_vlog))
 
             compile_cmd = [
                 "iverilog", "-g2012", "-o", str(sim_vvp),
@@ -1191,7 +1154,6 @@ class MiterVerifier:
                         exact_vlog=self.exact_vlog,
                         approx_vlog=self.approx_vlog,
                         meta_json=self.meta_json,
-                        tech_vlog=self.tech_vlog,
                         timeout=self.formal_timeout,
                     )
                     ctrl_res = ctrl_verifier.verify()
@@ -1223,7 +1185,6 @@ class MiterVerifier:
                             exact_cone_vlog=cone_exact,
                             approx_cone_vlog=cone_approx,
                             meta_json=self.meta_json,
-                            tech_vlog=self.tech_vlog,
                             timeout=self.formal_timeout,
                             signed_outputs="sub" in self.top_module.lower(),
                         )
@@ -1243,8 +1204,6 @@ def main() -> None:
     parser.add_argument("--exact", required=True, help="Golden exact RTL Verilog")
     parser.add_argument("--approx", required=True, help="Approximated top netlist Verilog")
     parser.add_argument("--meta", required=True, help="Path to metadata.json")
-    parser.add_argument("-t", "--tech", default="NanGate15nm", help="Standard cell library name")
-    parser.add_argument("--tech-v", default=None, help="Standard cell library Verilog path")
     parser.add_argument("-n", "--cycles", type=int, default=500, help="Simulation clock cycles")
     parser.add_argument("--no-formal", action="store_true", help="Disable Yosys SAT formal verification")
     parser.add_argument("--formal-timeout", type=int, default=60, help="Timeout in seconds for SAT solver")
@@ -1257,8 +1216,6 @@ def main() -> None:
         exact_vlog=args.exact,
         approx_vlog=args.approx,
         meta_json=args.meta,
-        tech=args.tech,
-        tech_vlog=args.tech_v,
         num_cycles=args.cycles,
         enable_formal=not args.no_formal,
         formal_timeout=args.formal_timeout,

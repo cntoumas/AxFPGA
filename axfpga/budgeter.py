@@ -107,7 +107,6 @@ class CascadedBudgeter:
                 flow = AxcFlow(
                     input_verilog=self.input_verilog,
                     output_dir=iter_dir,
-                    tech=self.tech,
                     clk_port=self.clk_port,
                     clk_period_ns=self.clk_period_ns,
                     sim_samples=self.sim_samples,
@@ -118,7 +117,6 @@ class CascadedBudgeter:
                     enable_formal=self.enable_formal,
                     formal_timeout=self.formal_timeout,
                     override_bound=current_cone_budget,
-                    target=self.target,
                     fpga_family=self.fpga_family,
                     fpga_device=self.fpga_device,
                     fpga_nodsp=self.fpga_nodsp,

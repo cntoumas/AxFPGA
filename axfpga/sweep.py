@@ -110,7 +110,6 @@ class ParetoSweeper:
                 flow = AxcFlow(
                     input_verilog=self.input_verilog,
                     output_dir=run_dir,
-                    tech=self.tech,
                     clk_port=self.clk_port,
                     clk_period_ns=self.clk_period_ns,
                     sim_samples=self.sim_samples,
@@ -122,7 +121,6 @@ class ParetoSweeper:
                     formal_timeout=self.formal_timeout,
                     axc_method=self.method,
                     override_bound=bound,
-                    target=self.target,
                     fpga_family=self.fpga_family,
                     fpga_device=self.fpga_device,
                     fpga_nodsp=self.fpga_nodsp,

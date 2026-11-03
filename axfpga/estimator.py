@@ -1,4 +1,4 @@
-"""FPGA Resource and Utilization Estimator for AxSYS.
+"""FPGA Resource and Utilization Estimator for AxFPGA.
 
 Synthesizes Verilog netlists to target FPGA architectures (primarily Xilinx 7-Series / Artix-7)
 using Yosys `synth_xilinx` and extracts physical resource utilization metrics:
@@ -98,19 +98,7 @@ class FpgaEstimator:
             # Public names for every net so the mapped Verilog, its JSON and simulation VCDs agree
             out_vlog_cmd = f"rename -enumerate -pattern axn_%; {out_vlog_cmd}"
 
-        # If netlist references gate primitives (e.g. from NanGate15nm) without embedding definitions, read them first
-        extra_reads = ""
-        try:
-            content = netlist.read_text(encoding="utf-8", errors="ignore")
-            if ("module AND2_X1" not in content) and ("_X" in content or "MUX2" in content or "FA_X1" in content):
-                nan_path = Path(__file__).resolve().parent.parent / "third_party" / "AxLS" / "templates" / "NanGate15nm.v"
-                if nan_path.exists():
-                    extra_reads = f"read_verilog -sv {nan_path}; "
-        except Exception:
-            pass
-
         yosys_script = (
-            f"{extra_reads}"
             f"read_verilog -sv {netlist}; "
             f"setattr -unset keep_hierarchy; "
             f"synth_xilinx -family {self.family} -flatten -noiopad {dsp_flag} -top {top_module}; "

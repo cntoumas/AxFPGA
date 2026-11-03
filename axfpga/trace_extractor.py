@@ -3,7 +3,7 @@
 Simulates the top-level design shell (exact pipeline) to dump active datapath
 vectors arriving at the combinational approximation cone into a .hex trace file.
 This provides realistic input distributions (e.g., pipeline delay correlation,
-spatial locality, valid handshakes) for AxLS Decision Trees and Pruning.
+spatial locality, valid handshakes) as Tournament stimulus.
 """
 
 from __future__ import annotations
@@ -30,12 +30,10 @@ class TraceExtractor:
         top_shell_path: str | Path,
         extracted_cone_path: str | Path,
         meta_json: Optional[str | Path] = None,
-        tech_vlog_path: Optional[str | Path] = None,
     ):
         self.top_shell_path = Path(top_shell_path).resolve()
         self.extracted_cone_path = Path(extracted_cone_path).resolve()
         self.meta_json = Path(meta_json).resolve() if meta_json else None
-        self.tech_vlog_path = Path(tech_vlog_path).resolve() if tech_vlog_path else None
 
         self.meta: Dict[str, Any] = {}
         if self.meta_json and self.meta_json.exists():
@@ -45,9 +43,7 @@ class TraceExtractor:
     def _inspect_circuit(self) -> Dict[str, Any]:
         """Inspect top shell and extracted cone hierarchy to find ports and instance names."""
         design = ys.Design()
-        tech_cmd = f"read_verilog -overwrite {self.tech_vlog_path}; " if (self.tech_vlog_path and self.tech_vlog_path.exists()) else ""
         cmd = (
-            f"{tech_cmd}"
             f"read_verilog -sv {self.extracted_cone_path}; "
             f"read_verilog -sv {self.top_shell_path}; "
             f"hierarchy -check -auto-top; "
@@ -396,8 +392,6 @@ class TraceExtractor:
                 str(self.top_shell_path),
                 str(self.extracted_cone_path),
             ]
-            if self.tech_vlog_path and self.tech_vlog_path.exists():
-                compile_cmd.append(str(self.tech_vlog_path))
 
             logger.info("Compiling trace testbench: %s", " ".join(compile_cmd))
             proc_comp = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=120)
@@ -450,7 +444,6 @@ def main() -> None:
     parser.add_argument("-o", "--output", required=True, help="Destination cone_trace.hex path")
     parser.add_argument("-n", "--samples", type=int, default=500, help="Number of trace vectors to capture")
     parser.add_argument("--meta", default=None, help="Path to cone_meta.json")
-    parser.add_argument("--tech-v", default=None, help="Technology library Verilog path")
     parser.add_argument("--period", type=float, default=10.0, help="Clock period in ns")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
 
@@ -461,7 +454,6 @@ def main() -> None:
         top_shell_path=args.top_shell,
         extracted_cone_path=args.cone,
         meta_json=args.meta,
-        tech_vlog_path=args.tech_v,
     )
     result = extractor.extract_traces(
         out_trace_hex=args.output,

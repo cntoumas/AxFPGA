@@ -14,7 +14,6 @@ def test_fpga_end_to_end_flow_mac(tmp_path: Path):
     flow = AxcFlow(
         input_verilog=MAC_VLOG,
         output_dir=out_dir,
-        target="fpga",
         fpga_family="xc7",
         fpga_device="xc7a35t",
         fpga_nodsp=True,

@@ -29,11 +29,6 @@ from axfpga.tournament import Tournament
 from axfpga.trace_extractor import TraceExtractor
 from axfpga.verifier import MiterVerifier
 
-try:
-    from axfpga.power_estimator import PowerEstimator
-except ImportError:
-    PowerEstimator = None
-
 logger = logging.getLogger("axc_flow")
 
 
@@ -44,7 +39,6 @@ class AxcFlow:
         self,
         input_verilog: str | Path,
         output_dir: str | Path,
-        tech: str = "NanGate15nm",
         clk_port: str = "clk",
         clk_period_ns: float = 10.0,
         sim_samples: int = 500,
@@ -56,14 +50,12 @@ class AxcFlow:
         formal_timeout: int = 60,
         axc_method: str = "pyals",
         override_bound: Optional[float] = None,
-        target: str = "fpga",
         fpga_family: str = "xc7",
         fpga_device: str = "xc7a35t",
         fpga_nodsp: bool = False,
     ):
         self.input_verilog = Path(input_verilog).resolve()
         self.output_dir = Path(output_dir).resolve()
-        self.tech = tech
         self.clk_port = clk_port
         self.clk_period_ns = clk_period_ns
         self.sim_samples = sim_samples
@@ -75,23 +67,9 @@ class AxcFlow:
         self.formal_timeout = formal_timeout
         self.axc_method = axc_method
         self.override_bound = float(override_bound) if override_bound is not None else None
-        self.target = target.lower()
         self.fpga_family = fpga_family.lower()
         self.fpga_device = fpga_device.lower()
         self.fpga_nodsp = fpga_nodsp
-
-        # Auto-detect FPGA from tech string
-        if self.tech.lower() in ("xc7", "artix7", "xilinx"):
-            self.target = "fpga"
-            self.fpga_family = "xc7"
-
-        # Resolve tech Verilog library path
-        tech_p = Path(self.tech)
-        if tech_p.is_file():
-            self.tech_vlog_path: Optional[Path] = tech_p.resolve()
-        else:
-            cand = Path(__file__).resolve().parent.parent / "third_party" / "AxLS" / "templates" / f"{self.tech}.v"
-            self.tech_vlog_path = cand.resolve() if cand.is_file() else None
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -101,7 +79,7 @@ class AxcFlow:
         logger.info("=== STARTING AXC EDA FLOW ===")
         logger.info("Input Verilog: %s", self.input_verilog)
         logger.info("Output Directory: %s", self.output_dir)
-        logger.info("Technology: %s (library file: %s)", self.tech, self.tech_vlog_path)
+        logger.info("Target: %s / %s", self.fpga_family, self.fpga_device)
 
         # -------------------------------------------------------------
         # STEP 1: Cone Extraction
@@ -161,7 +139,6 @@ class AxcFlow:
                     top_shell_path=top_shell_vlog,
                     extracted_cone_path=submod_vlog,
                     meta_json=meta_json_path,
-                    tech_vlog_path=self.tech_vlog_path,
                 )
                 trace_res = trace_extractor.extract_traces(
                     out_trace_hex=trace_cand,
@@ -171,7 +148,7 @@ class AxcFlow:
                 )
                 if trace_res.get("status") == "SUCCESS":
                     trace_hex_path = trace_cand
-                    logger.info("Captured %d realistic datapath vectors for AxLS training", trace_res.get("num_vectors", 0))
+                    logger.info("Captured %d realistic datapath vectors for the Tournament", trace_res.get("num_vectors", 0))
                 else:
                     logger.warning("Trace extraction was not successful (%s); falling back to synthetic dataset", trace_res.get("status"))
             except Exception as exc:
@@ -212,13 +189,10 @@ class AxcFlow:
         logger.info("--- Step 3: Top Shell and Approximate Cone Re-integration ---")
         final_top_vlog = self.output_dir / "final_approx_top.v"
 
-        tech_vlog_to_pass = None if self.target == "fpga" else self.tech_vlog_path
         reintegrator = Reintegrator(
             top_shell_path=top_shell_vlog,
             approx_cone_path=approx_cone_vlog,
             extracted_cone_path=submod_vlog,
-            tech=self.tech,
-            tech_verilog_path=tech_vlog_to_pass,
         )
         reint_result = reintegrator.reintegrate(out_final_path=final_top_vlog)
 
@@ -244,8 +218,6 @@ class AxcFlow:
             exact_vlog=self.input_verilog,
             approx_vlog=final_top_vlog,
             meta_json=meta_json_path,
-            tech=self.tech,
-            tech_vlog=None if self.target == "fpga" else self.tech_vlog_path,
             num_cycles=self.verify_cycles,
             enable_formal=self.enable_formal,
             formal_timeout=self.formal_timeout,
@@ -255,63 +227,47 @@ class AxcFlow:
         verify_result = verifier.verify()
 
         # -------------------------------------------------------------
-        # STEP 6: Target Evaluation (FPGA Resources or ASIC Power/Area)
+        # STEP 6: FPGA Resource Evaluation
         # -------------------------------------------------------------
-        power_info: Dict[str, Any] = {}
         fpga_info: Dict[str, Any] = {}
 
-        if self.target == "fpga":
-            logger.info("--- Step 6: FPGA Resource Estimation & Utilization (%s / %s) ---", self.fpga_family, self.fpga_device)
-            try:
-                fpga_estimator = FpgaEstimator(
-                    family=self.fpga_family,
-                    device=self.fpga_device,
-                    nodsp=self.fpga_nodsp,
-                )
-                fpga_info = fpga_estimator.compare_exact_vs_approx(
-                    exact_netlist=self.input_verilog,
-                    approx_netlist=final_top_vlog,
-                    top_module=cone_result.get("top_module"),
-                    work_dir=self.output_dir,
-                )
-                logger.info(
-                    "FPGA Resource Savings [%s]: LUTs=%d (-%.2f%%) | CARRY4=%d (-%.2f%%) | Estimated LCs=%d (-%.2f%%)",
-                    self.fpga_device,
-                    fpga_info["luts_saved"],
-                    fpga_info["lut_reduction_pct"],
-                    fpga_info["carry_saved"],
-                    fpga_info["carry_reduction_pct"],
-                    fpga_info["lcs_saved"],
-                    fpga_info["lc_reduction_pct"],
-                )
+        logger.info("--- Step 6: FPGA Resource Estimation & Utilization (%s / %s) ---", self.fpga_family, self.fpga_device)
+        try:
+            fpga_estimator = FpgaEstimator(
+                family=self.fpga_family,
+                device=self.fpga_device,
+                nodsp=self.fpga_nodsp,
+            )
+            fpga_info = fpga_estimator.compare_exact_vs_approx(
+                exact_netlist=self.input_verilog,
+                approx_netlist=final_top_vlog,
+                top_module=cone_result.get("top_module"),
+                work_dir=self.output_dir,
+            )
+            logger.info(
+                "FPGA Resource Savings [%s]: LUTs=%d (-%.2f%%) | CARRY4=%d (-%.2f%%) | Estimated LCs=%d (-%.2f%%)",
+                self.fpga_device,
+                fpga_info["luts_saved"],
+                fpga_info["lut_reduction_pct"],
+                fpga_info["carry_saved"],
+                fpga_info["carry_reduction_pct"],
+                fpga_info["lcs_saved"],
+                fpga_info["lc_reduction_pct"],
+            )
 
-                # Phase 1.3: Generate Vivado sign-off batch synthesis script (Zybo / PYNQ / Artix-7)
-                from axfpga.vivado import VivadoBatchRunner
-                vivado_runner = VivadoBatchRunner(part=self.fpga_device or "xc7z010clg400-1")
-                vivado_tcl = self.output_dir / "run_vivado_synth.tcl"
-                vivado_runner.generate_tcl(
-                    top_module=cone_result.get("top_module"),
-                    verilog_files=[final_top_vlog],
-                    out_tcl_path=vivado_tcl,
-                    sdc_file=out_sdc_path if out_sdc_path.exists() else None,
-                )
-                fpga_info["vivado_tcl"] = str(vivado_tcl)
-            except Exception as exc:
-                logger.warning("FPGA resource estimation could not be completed: %s", exc)
-        else:
-            logger.info("--- Step 6: Power Dissipation Estimation ---")
-            try:
-                clk_mhz = 1000.0 / self.clk_period_ns if self.clk_period_ns > 0 else 100.0
-                power_estimator = PowerEstimator(tech=self.tech, clk_mhz=clk_mhz)
-                power_info = power_estimator.evaluate_netlist(final_top_vlog)
-                logger.info(
-                    "Power dissipation: Total=%.3f uW (Leakage=%.3f uW, Dynamic=%.3f uW)",
-                    power_info["total_power_uw"],
-                    power_info["leakage_power_uw"],
-                    power_info["dynamic_power_uw"],
-                )
-            except Exception as exc:
-                logger.warning("Power estimation could not be completed: %s", exc)
+            # Phase 1.3: Generate Vivado sign-off batch synthesis script (Zybo / PYNQ / Artix-7)
+            from axfpga.vivado import VivadoBatchRunner
+            vivado_runner = VivadoBatchRunner(part=self.fpga_device or "xc7z010clg400-1")
+            vivado_tcl = self.output_dir / "run_vivado_synth.tcl"
+            vivado_runner.generate_tcl(
+                top_module=cone_result.get("top_module"),
+                verilog_files=[final_top_vlog],
+                out_tcl_path=vivado_tcl,
+                sdc_file=out_sdc_path if out_sdc_path.exists() else None,
+            )
+            fpga_info["vivado_tcl"] = str(vivado_tcl)
+        except Exception as exc:
+            logger.warning("FPGA resource estimation could not be completed: %s", exc)
 
         elapsed = time.time() - start_time
         logger.info("=== FLOW FINISHED IN %.2f SECONDS ===", elapsed)
@@ -320,7 +276,7 @@ class AxcFlow:
 
         summary: Dict[str, Any] = {
             "flow_status": "SUCCESS" if verify_result.get("status") == "PASSED" else "VERIFICATION_FAILED",
-            "target": self.target,
+            "target": "fpga",
             "elapsed_seconds": round(elapsed, 2),
             "top_module": cone_result.get("top_module", "unknown"),
             "submodule_module": cone_result.get("submodule_module", ""),
@@ -348,7 +304,6 @@ class AxcFlow:
                 "approx_area": None,
                 "area_savings_percent": None,
             },
-            "power": power_info,
             "fpga": fpga_info,
             "verification": verify_result,
             "generated_files": {
@@ -374,8 +329,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Full AxFPGA Approximate Logic Synthesis Flow Orchestrator")
     parser.add_argument("-i", "--input", required=True, help="Input annotated Verilog file")
     parser.add_argument("-o", "--output-dir", default="build/axc_output", help="Output directory")
-    parser.add_argument("-t", "--tech", default="NanGate15nm", help="Standard cell tech library")
-    parser.add_argument("--target", default="fpga", choices=["asic", "fpga"], help="Target architecture: fpga (Xilinx 7-Series) or asic")
     parser.add_argument("--fpga-family", default="xc7", help="Target FPGA family (default: xc7)")
     parser.add_argument("--fpga-device", default="xc7a35t", help="Target FPGA reference device (default: xc7a35t)")
     parser.add_argument("--nodsp", action="store_true", help="Disable DSP slice inference on FPGA (defaults to allowing DSPs)")
@@ -402,7 +355,6 @@ def main() -> None:
     flow = AxcFlow(
         input_verilog=args.input,
         output_dir=args.output_dir,
-        tech=args.tech,
         clk_port=args.clk,
         clk_period_ns=args.period,
         sim_samples=args.samples,
@@ -414,7 +366,6 @@ def main() -> None:
         formal_timeout=args.formal_timeout,
         axc_method=args.method,
         override_bound=args.bound,
-        target=args.target,
         fpga_family=args.fpga_family,
         fpga_device=args.fpga_device,
         fpga_nodsp=args.nodsp,

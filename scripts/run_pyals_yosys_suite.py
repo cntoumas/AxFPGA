@@ -454,8 +454,8 @@ def _reintegrate(bench: Dict[str, Any], bench_work: Path, shell_v: Path, cone_v:
         shutil.copy(approx_cone_v, final_approx_top_v)
         return
     if len(bench["files"]) == 1:
-        Reintegrator(top_shell_path=shell_v, approx_cone_path=approx_cone_v, extracted_cone_path=cone_v,
-                     tech="").reintegrate(out_final_path=final_approx_top_v, flatten=False)
+        Reintegrator(top_shell_path=shell_v, approx_cone_path=approx_cone_v,
+                     extracted_cone_path=cone_v).reintegrate(out_final_path=final_approx_top_v, flatten=False)
         return
     # Multi-file design: keep original untouched submodules (memory/DSP behavioral primitives)
     untouched = [f.read_text(encoding="utf-8", errors="ignore") for f in bench["files"]
