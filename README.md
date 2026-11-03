@@ -25,14 +25,22 @@ AxFPGA is a native FPGA Approximate Logic Synthesis (ALS) & Formal Verification 
 
 ## Installation & Setup
 
-```bash
-# Clone and enter AxFPGA
-cd ~/AxFPGA
+Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), and Icarus Verilog (`iverilog`, `vvp`) on `PATH`.
+Yosys is pinned to **0.70** through the `pyosys` wheel; no system Yosys is used. The wheel has no
+`yosys` executable, so AxFPGA ships `axfpga-yosys` (`python -m axfpga.yosys_cli`) on top of the same `libyosys`.
 
-# Install dependencies and axfpga in editable mode
-pip install -e pyALSlib
-pip install -e .
+```bash
+git clone --recurse-submodules <repo> AxFPGA && cd AxFPGA
+
+# Project-local venv in .venv with axfpga and the local pyALSlib submodule (editable)
+uv sync --extra dev
+.venv/bin/axfpga-yosys -V        # Yosys 0.70
+.venv/bin/python -m pytest tests
 ```
+
+Configuration (environment variables, see `axfpga/config.py`): `AXFPGA_AXBENCH_ROOT` (AxBench checkout,
+default `~/Downloads/axbench-verilog`), `AXFPGA_VIVADO` (Vivado executable, validation only),
+`AXFPGA_YOSYS` (override the Yosys command line).
 
 ---
 
@@ -40,10 +48,10 @@ pip install -e .
 
 ```bash
 # Full automated end-to-end FPGA synthesis flow
-axfpga -i benchmarks/mac/mac.v -o build/mac_run --method auto --target fpga
+axfpga -i benchmarks/mac/mac.v -o build/mac_run
 
-# Run pyALS catalog-based AIG-rewriting specifically
-axfpga -i benchmarks/sobel/sobel.v -o build/sobel_pyals --method pyals
+# AxBench evaluation on the Zybo Z7-10 (xc7z010), parallel; results in reports/
+scripts/run_axbench_zybo.sh
 
 # Automated Pareto sweeps over error bounds
 axfpga-sweep -i benchmarks/mac/mac.v -o reports/mac_sweep -b "8, 16, 32, 64, 128"
