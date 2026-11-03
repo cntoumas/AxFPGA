@@ -41,6 +41,18 @@ class Entry:
 
 
 @dataclass(frozen=True)
+class Alternative:
+    """A Candidate that met the Bound and saved resources on the Cone (unremapped netlist)."""
+
+    name: str
+    netlist_path: Path
+    error: float
+    lcs: int
+    luts: int
+    carry4: int
+
+
+@dataclass(frozen=True)
 class Champion:
     """Result of a Tournament run."""
 
@@ -58,6 +70,8 @@ class Champion:
     lc_savings_pct: float
     fell_back: bool
     leaderboard: Tuple[Entry, ...]
+    # All qualifying Candidates, best first (alternatives[0] is the Champion unless fell_back)
+    alternatives: Tuple[Alternative, ...] = ()
 
 
 class Tournament:
@@ -137,7 +151,7 @@ class Tournament:
 
         return Champion(
             name=champ["name"],
-            netlist_path=self._remap(champ["path"]),
+            netlist_path=self.remap(champ["path"]),
             error=champ["error"],
             metric=metric,
             bound=bound,
@@ -150,6 +164,9 @@ class Tournament:
             lc_savings_pct=savings,
             fell_back=fell_back,
             leaderboard=tuple(leaderboard),
+            alternatives=tuple(
+                Alternative(m["name"], m["path"], m["error"], m["lcs"], m["luts"], m["carry4"]) for m in beneficial
+            ),
         )
 
     def _write_exact_cone(self, iface: Dict[str, Any]) -> Path:
@@ -190,9 +207,12 @@ class Tournament:
         exact_v.write_text(mod_content, encoding="utf-8")
         return exact_v
 
-    def _remap(self, netlist: Path) -> Path:
-        """Xilinx 7-Series Yosys re-mapping pass on the Champion netlist."""
-        remap_out = self.work_dir / "remapped_approx_cone.v"
+    def remap(self, netlist: Path, out_path: Optional[Path] = None) -> Path:
+        """Xilinx 7-Series Yosys re-mapping pass on the Champion netlist.
+
+        ``out_path`` gives each concurrent caller its own output file.
+        """
+        remap_out = Path(out_path) if out_path else self.work_dir / "remapped_approx_cone.v"
         remap_cmd = (
             f"read_verilog -sv {netlist}; "
             f"hierarchy -check -auto-top; "

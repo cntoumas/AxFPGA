@@ -15,6 +15,8 @@ from typing import Any, Dict, Optional
 
 from pyosys import libyosys as ys
 
+from axfpga.parallel import yosys_serialized
+
 logger = logging.getLogger("reintegrator")
 
 TECH_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "third_party" / "AxLS" / "templates"
@@ -50,6 +52,7 @@ class Reintegrator:
         if not self.tech_v.exists():
             logger.warning("Technology Verilog file not found: %s", self.tech_v)
 
+    @yosys_serialized
     def reintegrate(self, out_final_path: str | Path, flatten: bool = False) -> Dict[str, Any]:
         """Combine top shell and approximate submodule into unified Verilog."""
         out_p = Path(out_final_path).resolve()

@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Optional
 
 from pyosys import libyosys as ys
 
+from axfpga.parallel import YOSYS_LOCK, yosys_serialized
+
 logger = logging.getLogger("verifier")
 
 TECH_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "third_party" / "AxLS" / "templates"
@@ -58,6 +60,7 @@ class FormalControlVerifier:
 
         self.top_module = self.meta.get("top_module", "top")
 
+    @yosys_serialized
     def _inspect_signals(self) -> Dict[str, Any]:
         """Inspect input and output ports of top module to separate control and relaxed signals."""
         design = ys.Design()
@@ -363,6 +366,7 @@ class FormalWceVerifier:
         target_signals: Optional[List[Dict[str, Any]]] = None,
         tech_vlog: Optional[str | Path] = None,
         timeout: int = 60,
+        signed_outputs: bool = False,
     ):
         self.exact_cone_vlog = Path(exact_cone_vlog).resolve()
         self.approx_cone_vlog = Path(approx_cone_vlog).resolve()
@@ -376,7 +380,11 @@ class FormalWceVerifier:
                 self.meta = json.load(f)
 
         self.target_signals = target_signals or self.meta.get("relaxed_signals", [])
+        # Treat relaxed outputs as two's complement (subtractors); keeps the formal bound
+        # consistent with the simulation miter's signedness rule.
+        self.signed_outputs = signed_outputs
 
+    @yosys_serialized
     def _inspect_cone_ports(self) -> Dict[str, Any]:
         """Inspect input and output ports of extracted combinational cone."""
         target_mod = None
@@ -489,7 +497,7 @@ class FormalWceVerifier:
 
             port_meta = out_map[wire_name]
             width = port_meta["width"]
-            is_signed = port_meta.get("is_signed", False)
+            is_signed = port_meta.get("is_signed", False) or self.signed_outputs
 
             # Determine integer bound for WCE comparison
             raw_bound = sig.get("bound", 16.0)
@@ -621,10 +629,12 @@ class MiterVerifier:
         formal_timeout: int = 60,
         extracted_cone_vlog: Optional[str | Path] = None,
         approx_cone_vlog: Optional[str | Path] = None,
+        sim_timeout: int = 120,
     ):
         self.exact_vlog = Path(exact_vlog).resolve()
         self.approx_vlog = Path(approx_vlog).resolve()
         self.meta_json = Path(meta_json).resolve() if meta_json else None
+        self.sim_timeout = sim_timeout
 
         if tech_vlog:
             self.tech_vlog = Path(tech_vlog).resolve()
@@ -656,15 +666,17 @@ class MiterVerifier:
         self.top_module = self.meta.get("top_module")
         if not self.top_module:
             try:
-                d = ys.Design()
-                ys.run_pass(f"read_verilog -sv {self.exact_vlog}; hierarchy -auto-top", d)
-                if d.top_module():
-                    self.top_module = d.top_module().name.str().lstrip("\\")
+                with YOSYS_LOCK:
+                    d = ys.Design()
+                    ys.run_pass(f"read_verilog -sv {self.exact_vlog}; hierarchy -auto-top", d)
+                    if d.top_module():
+                        self.top_module = d.top_module().name.str().lstrip("\\")
             except Exception:
                 pass
         if not self.top_module:
             self.top_module = "top"
 
+    @yosys_serialized
     def _prepare_approx_netlist(self, work_dir: Path) -> Path:
         """Rename approximate top module to avoid collision in iverilog."""
         renamed_vlog = work_dir / f"{self.top_module}_approx.v"
@@ -689,6 +701,7 @@ class MiterVerifier:
         ys.run_pass(cmd, design)
         return renamed_vlog
 
+    @yosys_serialized
     def _prepare_exact_netlist(self, work_dir: Path) -> Path:
         """Flatten and rename exact top module to avoid collision in iverilog and normalize register semantics."""
         renamed_vlog = work_dir / f"{self.top_module}_exact.v"
@@ -713,6 +726,7 @@ class MiterVerifier:
         ys.run_pass(cmd, design)
         return renamed_vlog
 
+    @yosys_serialized
     def _inspect_module_ports(self) -> Dict[str, Any]:
         """Inspect input and output ports of top module."""
         design = ys.Design()
@@ -1043,9 +1057,9 @@ class MiterVerifier:
 
             logger.info("Compiling Miter: %s", " ".join(compile_cmd))
             try:
-                proc_comp = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=120)
+                proc_comp = subprocess.run(compile_cmd, capture_output=True, text=True, timeout=self.sim_timeout)
             except subprocess.TimeoutExpired:
-                logger.error("Miter compilation timed out after 120s")
+                logger.error("Miter compilation timed out after %ds", self.sim_timeout)
                 return {
                     "status": "TIMEOUT",
                     "stderr": "iverilog compilation timed out after 120 seconds",
@@ -1061,9 +1075,9 @@ class MiterVerifier:
             # 5. Run simulation with safety timeout
             run_cmd = ["vvp", str(sim_vvp)]
             try:
-                proc_run = subprocess.run(run_cmd, capture_output=True, text=True, timeout=120)
+                proc_run = subprocess.run(run_cmd, capture_output=True, text=True, timeout=self.sim_timeout)
             except subprocess.TimeoutExpired:
-                logger.error("Miter simulation timed out after 120s")
+                logger.error("Miter simulation timed out after %ds", self.sim_timeout)
                 return {
                     "status": "TIMEOUT",
                     "stderr": "vvp simulation timed out after 120 seconds",
@@ -1218,6 +1232,7 @@ class MiterVerifier:
                             meta_json=self.meta_json,
                             tech_vlog=self.tech_vlog,
                             timeout=self.formal_timeout,
+                            signed_outputs="sub" in self.top_module.lower(),
                         )
                         wce_res = wce_verifier.verify()
                         formal_results["wce_bound"] = wce_res

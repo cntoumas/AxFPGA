@@ -40,6 +40,14 @@ FPGA_DEVICE_CAPACITIES: Dict[str, Dict[str, int]] = {
         "bram36": 135,
         "slices": 15850,
     },
+    "xc7z010": {
+        "luts": 17600,
+        "ffs": 35200,
+        "carry4": 4400,
+        "dsps": 80,
+        "bram36": 60,
+        "slices": 4400,
+    },
     "xc7z020": {
         "luts": 53200,
         "ffs": 106400,
@@ -73,6 +81,7 @@ class FpgaEstimator:
         top_module: str,
         out_mapped_vlog: Optional[str | Path] = None,
         work_dir: Optional[str | Path] = None,
+        out_mapped_json: Optional[str | Path] = None,
     ) -> Dict[str, Any]:
         """Synthesize a Verilog netlist to target FPGA primitives and extract resource counts."""
         netlist = Path(netlist_path).resolve()
@@ -81,7 +90,12 @@ class FpgaEstimator:
 
         t0 = time.time()
         dsp_flag = "-nodsp" if self.nodsp else ""
-        out_vlog_cmd = f"write_verilog {out_mapped_vlog};" if out_mapped_vlog else ""
+        out_vlog_cmd = f"write_verilog -noattr {out_mapped_vlog};" if out_mapped_vlog else ""
+        if out_mapped_json:
+            out_vlog_cmd += f" write_json {out_mapped_json};"
+        if out_vlog_cmd:
+            # Public names for every net so the mapped Verilog, its JSON and simulation VCDs agree
+            out_vlog_cmd = f"rename -enumerate -pattern axn_%; {out_vlog_cmd}"
 
         # If netlist references gate primitives (e.g. from NanGate15nm) without embedding definitions, read them first
         extra_reads = ""
@@ -193,6 +207,8 @@ class FpgaEstimator:
             "device_capacity": self.device_capacity,
             "lut_utilization_pct": round((total_luts / lut_cap) * 100.0, 3) if lut_cap else 0.0,
             "ff_utilization_pct": round((ff_count / ff_cap) * 100.0, 3) if ff_cap else 0.0,
+            "dsp_utilization_pct": round((dsp_count / self.device_capacity["dsps"]) * 100.0, 3),
+            "bram_utilization_pct": round(((ramb36_count + 0.5 * ramb18_count) / self.device_capacity["bram36"]) * 100.0, 3),
             "cells_by_type": cells_by_type,
             "synth_time_sec": round(elapsed, 2),
         }

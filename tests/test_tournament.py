@@ -74,6 +74,9 @@ def test_cheapest_candidate_within_bound_wins(tmp_path: Path, cone: Path):
     assert board["trunc6"].lcs is None
     assert board["exact_copy"].passed_bound is True
 
+    # Alternatives: only qualifying, resource-saving candidates, champion first
+    assert [a.name for a in champ.alternatives] == ["trunc2"]
+
 
 def test_falls_back_when_no_candidate_both_meets_bound_and_saves(tmp_path: Path, cone: Path):
     champ = _run(tmp_path, cone, "exact_copy", "trunc6")
