@@ -58,8 +58,8 @@ INNER_JOBS = 3                 # concurrent candidate evaluations inside one ben
 # Scheduling hints for --jobs > 1. Relative run time orders the queue (longest first);
 # EST_GB is the peak resident memory of one concurrent synthesis (tune from build/*/stats.json);
 # BASE_GB is the benchmark process itself (python + pyosys + numpy).
-EST_COST = {"sobel_npu": 100, "neural_network": 40, "kinematics_inv": 40, "multiplier_32b": 25, "kinematics_fwd": 15}
-EST_GB = {"sobel_npu": 10.0, "kinematics_inv": 3.0, "multiplier_32b": 1.0, "kinematics_fwd": 2.0, "neural_network": 1.0}  # sobel_npu: 6.7 GB yosys, 9.3 GB iverilog miter
+EST_COST = {"sobel_npu": 100, "kinematics_inv": 60, "neural_network": 40, "multiplier_32b": 25, "kinematics_fwd": 15}
+EST_GB = {"sobel_npu": 10.0, "kinematics_inv": 3.5, "multiplier_32b": 1.0, "kinematics_fwd": 2.0, "neural_network": 1.0}  # sobel_npu: 6.7 GB yosys, 9.3 GB iverilog miter
 DEFAULT_GB = 0.4
 BASE_GB = 1.4
 RESERVE_GB = 2.0               # never plan to use the last RESERVE_GB of available memory
@@ -523,10 +523,10 @@ def _mem_total_gb() -> float:
     return 16.0
 
 
-def _inner_jobs_for(bench_id: str, inner_jobs: int, budget_gb: float) -> int:
-    """Concurrent candidate evaluations for one benchmark: at most budget/2 of memory for itself."""
+def _inner_jobs_for(bench_id: str, inner_jobs: int, available_gb: float) -> int:
+    """Concurrent candidate evaluations for one benchmark, from the memory still unplanned."""
     gb = EST_GB.get(bench_id, DEFAULT_GB)
-    return max(1, min(inner_jobs, int((budget_gb * 0.5 - BASE_GB) // gb)))
+    return max(1, min(inner_jobs, int((available_gb - BASE_GB) // gb)))
 
 
 def _benchmark_process(bench_id: str, build_dir: str, nodsp: bool, cone_variants: Tuple[str, ...],
@@ -579,9 +579,9 @@ def run_suite(suite: List[Dict[str, Any]], out_dir: Path, jobs: int, inner_jobs:
         for b in list(pending):
             if len(running) >= jobs or (running and time.time() < hold_until):
                 break
-            ij = min(_inner_jobs_for(b["id"], inner_jobs, budget_gb), forced_inner.get(b["id"], inner_jobs))
-            gb = BASE_GB + EST_GB.get(b["id"], DEFAULT_GB) * ij
             planned = sum(v[1] for v in running.values())
+            ij = min(_inner_jobs_for(b["id"], inner_jobs, budget_gb - planned), forced_inner.get(b["id"], inner_jobs))
+            gb = BASE_GB + EST_GB.get(b["id"], DEFAULT_GB) * ij
             if running and (planned + gb > budget_gb or gb > _mem_available_gb() - RESERVE_GB):
                 continue                      # a lighter benchmark further down the queue may still fit
             pending.remove(b)

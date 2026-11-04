@@ -489,23 +489,50 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             if cancel.is_set():
                 raise Cancelled(label)
 
+        def synth() -> Dict[str, Any]:
+            return estimator.evaluate_netlist(top_v, top_module=top_mod, work_dir=bench_work,
+                                              out_mapped_vlog=map_v, out_mapped_json=map_j)
+
+        def miter_check() -> Dict[str, Any]:
+            return MiterVerifier(exact_vlog=exact_top_v, approx_vlog=top_v, meta_json=cone_meta,
+                                 num_cycles=1000, enable_formal=False, sim_timeout=SIM_TIMEOUT_S).verify()
+
+        def app_sim() -> Dict[str, Any]:
+            norm = _normalize_rtl(top_v, top_mod, app_dir / f"approx_norm_{key}.v")
+            return run_vector_sim([norm], vectors=vectors, tag=f"app_approx_{key}", **sim_kw)
+
         checkpoint()
-        a_res = estimator.evaluate_netlist(top_v, top_module=top_mod, work_dir=bench_work,
-                                           out_mapped_vlog=map_v, out_mapped_json=map_j)
+        if need_savings_first:
+            # A candidate without savings is dropped before the expensive checks: run them in sequence.
+            a_res = synth()
+            savings_ok = a_res["estimated_lcs"] < exact_res["estimated_lcs"] or a_res["total_luts"] < exact_res["total_luts"]
+            if not savings_ok:
+                rec.update(lcs=a_res["estimated_lcs"], luts=a_res["total_luts"], _res=a_res, savings_ok=False)
+                no_sav = (f"no top-level savings (LC {exact_res['estimated_lcs']}->{a_res['estimated_lcs']}, "
+                          f"LUT {exact_res['total_luts']}->{a_res['total_luts']})")
+                rec.update(outcome="rejected", reason=no_sav, err_ok=None)
+                logger.info("  %s [%s]: rejected: %s", label, variant, no_sav)
+                return rec
+            checkpoint()
+            miter = miter_check()
+            checkpoint()
+            sim = app_sim()
+        else:
+            # Synthesis, miter and application simulation are independent subprocess steps: run them together.
+            if inner_jobs > 1:
+                with ThreadPoolExecutor(max_workers=3) as ap:
+                    a_res, miter, sim = (f.result() for f in [ap.submit(g) for g in (synth, miter_check, app_sim)])
+            else:
+                a_res = synth()
+                checkpoint()
+                miter = miter_check()
+                checkpoint()
+                sim = app_sim()
+            checkpoint()
         rec.update(lcs=a_res["estimated_lcs"], luts=a_res["total_luts"], _res=a_res)
         rec["savings_ok"] = a_res["estimated_lcs"] < exact_res["estimated_lcs"] or a_res["total_luts"] < exact_res["total_luts"]
         no_sav = (f"no top-level savings (LC {exact_res['estimated_lcs']}->{a_res['estimated_lcs']}, "
                   f"LUT {exact_res['total_luts']}->{a_res['total_luts']})")
-        if need_savings_first and not rec["savings_ok"]:
-            rec.update(outcome="rejected", reason=no_sav, err_ok=None)
-            logger.info("  %s [%s]: rejected: %s", label, variant, no_sav)
-            return rec
-        checkpoint()
-        miter = MiterVerifier(exact_vlog=exact_top_v, approx_vlog=top_v, meta_json=cone_meta,
-                              num_cycles=1000, enable_formal=False, sim_timeout=SIM_TIMEOUT_S).verify()
-        checkpoint()
-        norm = _normalize_rtl(top_v, top_mod, app_dir / f"approx_norm_{key}.v")
-        sim = run_vector_sim([norm], vectors=vectors, tag=f"app_approx_{key}", **sim_kw)
         errs = evaluator.error_stats(bench_id, exact_sim["outputs"], sim["outputs"], bench["relax_wire"], skip)
         app = evaluator.app_metrics(bench_id, vectors, exact_sim["outputs"], sim["outputs"],
                                        relax_wire=bench["relax_wire"], skip=skip)

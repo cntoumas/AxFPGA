@@ -523,6 +523,10 @@ class ConeExtractor:
                     if wire.port_output:
                         out_ports.append({"name": wname_id.str().lstrip("\\"), "width": wire.width})
 
+            # wires_ iterates in hash-map order, which depends on the order Yosys interned names in this process
+            # (it differs between a cold run and a run served from the cache): sort, so the metadata is deterministic.
+            in_ports.sort(key=lambda p: p["name"])
+            out_ports.sort(key=lambda p: p["name"])
             comp_cell_types = Counter()
             for cname in comp:
                 c = top.cell(ys.IdString(cname))
