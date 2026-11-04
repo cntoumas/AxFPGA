@@ -29,6 +29,7 @@ from pyosys import libyosys as ys
 from axfpga.certification import ProofStatus
 from axfpga.config import xilinx_cells_sim, yosys_cmd
 from axfpga.parallel import YOSYS_LOCK, yosys_serialized
+from axfpga.ports import resolve_clock_reset
 
 logger = logging.getLogger("verifier")
 
@@ -112,21 +113,11 @@ class FormalControlVerifier:
         relaxed_names = {s["wire"] for s in self.meta.get("relaxed_signals", [])}
         precise_outputs = [out for out in outputs if out["name"] not in relaxed_names]
 
-        # Identify clk and reset
-        clk_name = None
-        rst_name = None
-        rst_active_low = True
-
-        for inp in inputs:
-            n = inp["name"].lower()
-            if n in ("clk", "clock", "clk_i"):
-                clk_name = inp["name"]
-            elif n in ("rst_n", "reset_n", "rstn", "rst_b", "reset_b"):
-                rst_name = inp["name"]
-                rst_active_low = True
-            elif n in ("rst", "reset", "rst_i"):
-                rst_name = inp["name"]
-                rst_active_low = False
+        # Identify clk and reset: axc_clock/axc_reset (cone meta), else name guess (warns)
+        cr = resolve_clock_reset(inputs, self.meta)
+        clk_name = cr["clk"]
+        rst_name = cr["rst"]
+        rst_active_low = cr["rst_active_low"]
 
         return {
             "top_module": self.top_module,
@@ -698,11 +689,11 @@ class MiterVerifier:
                 relaxed_names[sig] = {"wire": sig}
 
         # Declare clock and reset regs properly matching design ports
-        clk_inputs = {"clk", "clock"}
-        rst_inputs = {"rst", "rst_n", "reset", "reset_n"}
-
-        found_clks = [inp["name"] for inp in inputs if inp["name"].lower() in clk_inputs]
-        found_rsts = [inp["name"] for inp in inputs if inp["name"].lower() in rst_inputs]
+        cr = resolve_clock_reset(inputs, self.meta)
+        found_clks = [cr["clk"]] if cr["clk"] else []
+        found_rsts = [cr["rst"]] if cr["rst"] else []
+        rst_low = cr["rst_active_low"]
+        special_inputs = set(found_clks) | set(found_rsts)
 
         lines: List[str] = [
             "`timescale 1ns / 1ps",
@@ -721,7 +712,7 @@ class MiterVerifier:
             name = inp["name"]
             width = inp["width"]
             is_signed = inp.get("is_signed", False) or "mult" in self.top_module.lower()
-            if name.lower() not in clk_inputs and name.lower() not in rst_inputs:
+            if name not in special_inputs:
                 signed_str = "signed " if is_signed else ""
                 range_str = f"[{width-1}:0] " if width > 1 else ""
                 lines.append(f"  reg {signed_str}{range_str}{name};")
@@ -799,19 +790,19 @@ class MiterVerifier:
         ])
 
         for r in found_rsts:
-            if r.lower().endswith(("_n", "n")):
+            if rst_low:
                 lines.append(f"    {r} = 0;")
             else:
                 lines.append(f"    {r} = 1;")
 
         for inp in inputs:
             name = inp["name"]
-            if name.lower() not in clk_inputs and name.lower() not in rst_inputs:
+            if name not in special_inputs:
                 lines.append(f"    {name} = 0;")
 
         lines.append("    #20;")
         for r in found_rsts:
-            if r.lower().endswith(("_n", "n")):
+            if rst_low:
                 lines.append(f"    {r} = 1;")
             else:
                 lines.append(f"    {r} = 0;")
@@ -903,7 +894,7 @@ class MiterVerifier:
         for inp in inputs:
             name = inp["name"]
             width = inp["width"]
-            if name not in clk_inputs and name not in rst_inputs:
+            if name not in special_inputs:
                 lines.append(f"      {name} <= $urandom;")
 
         lines.extend([

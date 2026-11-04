@@ -21,7 +21,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from axfpga.cone_extractor import ConeExtractor
 from axfpga.estimator import FpgaEstimator
-from axfpga.pipeline import DesignSpec, GenericEvaluator, _top_ports, run_design
+from axfpga.pipeline import DesignSpec, _top_ports, run_design
 from axfpga.sdc_generator import SdcGenerator
 
 logger = logging.getLogger("axc_flow")
@@ -50,6 +50,8 @@ class AxcFlow:
         fpga_nodsp: bool = False,
         top: Optional[str] = None,
         dsp: Optional[bool] = None,
+        plugin: Optional[str | Path] = None,
+        seed: Optional[int] = None,
     ):
         files = [input_verilog] if isinstance(input_verilog, (str, Path)) else list(input_verilog)
         self.input_files: List[Path] = [Path(f).resolve() for f in files]
@@ -64,13 +66,14 @@ class AxcFlow:
         self.fpga_device = fpga_device.lower()
         self.fpga_nodsp = (not dsp) if dsp is not None else fpga_nodsp
         self.axc_method = axc_method
+        self.stimulus = str(Path(stimulus_file).resolve()) if stimulus_file else None   # overrides axc_stimulus
+        self.plugin = str(Path(plugin).resolve()) if plugin else None                   # overrides axc_plugin
+        self.seed = seed                                                                # overrides axc_seed
         # Accepted for API compatibility (sweep/budgeter); the pipeline fixes these: 1000-cycle miter, 120 s SAT
         # timeout, formal checks always on, random stimulus.
         ignored = []
         if not enable_formal:
             ignored.append("enable_formal=False")
-        if stimulus_file:
-            ignored.append("stimulus_file")
         if ignored:
             logger.warning("Ignored by the pipeline: %s", ", ".join(ignored))
 
@@ -119,20 +122,22 @@ class AxcFlow:
             logger.warning("%d relaxed signals; error statistics are measured on %s", len(relaxed), wire)
         metric = str(relaxed[0].get("metric") or "WCE").upper()
 
-        ports = _top_ports(self.input_files, top)
+        ports = _top_ports(self.input_files, top, meta=scan)
         width = dict(ports["outputs"]).get(wire)
         if width is None:
             summary = {"flow_status": "STOPPED", "top_module": top, "elapsed_seconds": round(time.time() - start, 2),
                        "reason": f"relaxed signal {wire!r} is not an output port of {top}; error statistics need a top output"}
             (self.output_dir / "flow_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
             return summary
-        evaluator = GenericEvaluator(ports["inputs"], width, n_vectors=max(self.sim_samples, 64),
-                                     signed=self._is_signed(self.input_files, wire))
+        # evaluator=None: run_design builds the QualityEvaluator from the axc_* attributes of the relaxed wire
+        # (no attributes: seeded random stimulus, modular error, only the formal bound as constraint).
         spec = DesignSpec(id=top, top=top, files=self.input_files, relax_wire=wire, bound=bound, metric=metric,
-                          annotated=True, med_limit=None, mred_limit=None)
+                          annotated=True, med_limit=None, mred_limit=None, samples=max(self.sim_samples, 64),
+                          signed=self._is_signed(self.input_files, wire), stimulus=self.stimulus, plugin=self.plugin,
+                          seed=self.seed)
         work = self.output_dir / "work"
         est = FpgaEstimator(family=self.fpga_family, device=self.fpga_device, nodsp=self.fpga_nodsp)
-        result = run_design(spec, est, work_dir=work, evaluator=evaluator, tournament_estimator=est)
+        result = run_design(spec, est, work_dir=work, evaluator=None, tournament_estimator=est)
         result["device"] = self.fpga_device
         # Schema-valid record list (docs/schema/result.schema.json is an array of results)
         (self.output_dir / "result.json").write_text(json.dumps([result], indent=2, default=str), encoding="utf-8")
@@ -141,9 +146,9 @@ class AxcFlow:
         sdc = self.output_dir / "final_approx_top.sdc"
         meta_path = work / "cone_meta.json"
         if meta_path.exists():
-            SdcGenerator(clk_port=self.clk_port, clk_period_ns=self.clk_period_ns, relaxation_factor=1.5,
-                         constraint_mode="max_delay").generate_sdc(metadata=json.loads(meta_path.read_text()),
-                                                                   out_sdc_path=sdc)
+            meta = json.loads(meta_path.read_text())
+            SdcGenerator(clk_port=meta.get("clock") or self.clk_port, clk_period_ns=self.clk_period_ns, relaxation_factor=1.5,
+                         constraint_mode="max_delay").generate_sdc(metadata=meta, out_sdc_path=sdc)
         final_top = work / "final_approx_top.v"
         files = {"final_approx_top": str(final_top), "exact_mapped": str(work / "exact_mapped.v"),
                  "approx_mapped": str(work / "approx_mapped.v"), "sdc_constraints": str(sdc) if sdc.exists() else None,
@@ -192,13 +197,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     parser.add_argument("--period", "--clk-period", dest="period", type=float, default=10.0, help="Clock period in ns")
     parser.add_argument("-s", "--samples", type=int, default=1000, help="Random stimulus cycles for error measurement")
     parser.add_argument("-b", "--bound", type=float, default=None, help="Error bound; overrides axc_bound")
+    parser.add_argument("--stimulus", "--stimulus-file", dest="stimulus", default=None, metavar="FILE",
+                        help="Hex stimulus file, one line per cycle (overrides axc_stimulus; split into tuning and held-out halves)")
+    parser.add_argument("--plugin", default=None, metavar="FILE", help="Python plugin with stimulus() / metric() (overrides axc_plugin)")
+    parser.add_argument("--seed", type=int, default=None, help="Random stimulus seed (overrides axc_seed)")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
     # Deprecated, accepted and ignored
     parser.add_argument("-n", "--verify-cycles", type=int, default=300, help=argparse.SUPPRESS)
     parser.add_argument("--decompose", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("-a", "--method", default="pyals", choices=["pyals", "als", "auto"], help=argparse.SUPPRESS)
     parser.add_argument("--no-trace", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--stimulus-file", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--no-formal", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--formal-timeout", type=int, default=60, help=argparse.SUPPRESS)
 
@@ -217,7 +225,9 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         clk_period_ns=args.period,
         sim_samples=args.samples,
         enable_formal=not args.no_formal,
-        stimulus_file=args.stimulus_file,
+        stimulus_file=args.stimulus,
+        plugin=args.plugin,
+        seed=args.seed,
         override_bound=args.bound,
         fpga_family=args.fpga_family,
         fpga_device=args.fpga_device,

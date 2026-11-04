@@ -23,8 +23,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 VOLATILE_KEY = re.compile(r"(^|_)(time|times|elapsed|wall|seconds|date|timestamp)(_|$)", re.IGNORECASE)
-# Added after the Phase-0 anchor; derived from the formal statuses, so not part of the comparison.
-IGNORED_KEYS = frozenset({"certification"})
+# Added after the Phase-0 anchor (certification derives from the formal statuses; quality / heldout are the
+# per-constraint records and the held-out stream, which the anchor has no counterpart for), so not compared.
+IGNORED_KEYS = frozenset({"certification", "quality", "heldout", "heldout_reason"})
 NETLISTS = ("exact_mapped.v", "approx_mapped.v")
 
 

@@ -1,4 +1,7 @@
-"""Application-level stimulus and metrics for the 13 AxBench circuits.
+"""DEPRECATED (Phase 2): reference implementation only. The suite uses axfpga/quality plus the plugins in
+benchmarks/axbench/; tests/test_axbench_equivalence.py checks the two agree.
+
+Application-level stimulus and metrics for the 13 AxBench circuits.
 
 Every benchmark gets a deterministic (seeded) per-cycle input stream for its top-level
 ports. The exact and approximated tops are simulated with the same stream, and the

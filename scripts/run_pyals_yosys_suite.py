@@ -8,7 +8,8 @@ Per benchmark:
 4. Yosys synth_xilinx of the approximate design.
 5. Random-stimulus miter (iverilog) + Yosys SAT formal control/WCE proofs;
    fallback to the exact design if the top-level WCE exceeds the bound.
-6. Application-level metric (scripts/axbench_apps.py) on exact vs approximate RTL.
+6. Application-level metric (benchmarks/axbench plugins, selected by the axc_* attributes in annotations.py) on
+   exact vs approximate RTL; the same attributes give the format and every constraint. Held-out stream reported.
 7. Activity-based dynamic power (axfpga/activity_power.py) of both mapped netlists.
 
 Outputs (in --out-dir, default reports/): results.json, results.csv, report.md.
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib.util
 import json
 import logging
 import math
@@ -35,10 +37,8 @@ from axfpga.certification import Certification, result_tier
 from axfpga.estimator import FpgaEstimator
 from axfpga.config import axbench_root
 from axfpga.pipeline import (CONE_VARIANTS, F_CLK_MHZ, FPGA_DEVICE, FPGA_PART, MAX_ATTEMPTS, MAX_PPG_EVALS,  # noqa: F401
-                             MED_FRACTION_OF_BOUND, MRED_LIMIT, DesignSpec, fmt as _fmt, run_design)
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import axbench_apps  # noqa: E402
+                             DesignSpec, fmt as _fmt, run_design)
+from axfpga.quality import QualitySpec
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +49,7 @@ logger = logging.getLogger("pyals_yosys_suite")
 
 AXBENCH_ROOT = axbench_root() / "circuits"          # AXFPGA_AXBENCH_ROOT overrides (see axfpga/config.py)
 AXFPGA_ROOT = Path(__file__).resolve().parent.parent
+AXBENCH_PLUGIN_DIR = AXFPGA_ROOT / "benchmarks" / "axbench"   # plugins and annotations.py (attributes of every design)
 BUILD_DIR = AXFPGA_ROOT / "build" / "pyals_yosys_run"
 REPORTS_DIR = AXFPGA_ROOT / "reports"
 INNER_JOBS = 3                 # concurrent candidate evaluations inside one benchmark (--inner-jobs)
@@ -277,26 +278,6 @@ def _raw_benchmark_suite() -> List[Dict[str, Any]]:
 
 
 
-# Error budgets in the relaxed output's number format (LSB units; see axbench_apps.OUTPUT_FORMAT).
-# Derived from each benchmark's application tolerance rather than a fixed LSB count:
-#   - adders, FIR: unchanged (already within application needs)
-#   - multipliers: WCE <= 2^(W_out/2) (half-word truncation); SQNR >= 25 dB and MRED <= 1 % still apply
-#   - Sobel: PSNR >= 30 dB <=> RMSE <= 8.06 -> WCE <= 16, MED <= 8; MRED not applicable (edge image ~0)
-#   - kinematics (Q15): 0.05 units/rad = 1638 LSB
-#   - neural network / Sobel NPU (Q9): 0.05 of unit range = 26 LSB
-#   - k-means: MRED not applicable to a distance kernel (|a-b| near 0); misclassification <= 2 % governs
-# MED defaults to WCE / 2, MRED to 1 %; None disables a limit.
-ERROR_BUDGET: Dict[str, Dict[str, Optional[float]]] = {
-    "multiplier_16b": {"wce": float(2 ** 16)},
-    "multiplier_32b": {"wce": float(2 ** 32)},
-    "sobel_filter": {"wce": 16.0, "med": 8.0, "mred": None},   # edge magnitudes mostly near 0: MRED meaningless, PSNR governs
-    "kinematics_fwd": {"wce": 1638.0},
-    "kinematics_inv": {"wce": 1638.0},
-    "neural_network": {"wce": 26.0},
-    "sobel_npu": {"wce": 26.0},
-    "kmeans_clustering": {"mred": None},
-}
-
 # Fixes for defects in the AxBench sources: (file name, old text, new text), applied to private copies.
 # Benchmarks left out of a default run (still runnable with -b <id>), with the reason shown in the report.
 EXCLUDED: Dict[str, str] = {
@@ -314,14 +295,26 @@ RTL_PATCHES: Dict[str, List[Tuple[str, str, str]]] = {
 }
 
 
+def _annotations() -> Dict[str, Dict[str, Any]]:
+    """benchmarks/axbench/annotations.py: format, quality constraints, plugin and seed of every design (plain data)."""
+    spec = importlib.util.spec_from_file_location("axbench_annotations", AXBENCH_PLUGIN_DIR / "annotations.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.ANNOTATIONS
+
+
 def define_benchmark_suite() -> List[Dict[str, Any]]:
-    """The 13 AxBench benchmarks with their error budgets applied."""
+    """The 13 AxBench benchmarks with their quality attributes applied.
+
+    Budgets, number format, application metric and stimulus all come from annotations.py: the pipeline sees them as
+    axc_* attributes on the relaxed wire, exactly as for a user design.
+    """
     suite = _raw_benchmark_suite()
+    ann = _annotations()
     for b in suite:
-        budget = ERROR_BUDGET.get(b["id"], {})
-        b["bound"] = budget.get("wce", b["bound"])
-        b["med_limit"] = budget["med"] if "med" in budget else b["bound"] * MED_FRACTION_OF_BOUND
-        b["mred_limit"] = budget["mred"] if "mred" in budget else MRED_LIMIT
+        b["quality_attrs"] = ann[b["id"]]
+        b["bound"] = QualitySpec.parse(ann[b["id"]]["quality"], b["relax_wire"]).wce_bound
+        b["search_dirs"] = [AXBENCH_PLUGIN_DIR]
         b["patches"] = RTL_PATCHES.get(b["id"], [])
     return suite
 
@@ -329,7 +322,7 @@ def define_benchmark_suite() -> List[Dict[str, Any]]:
 def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator, inner_jobs: int = 1) -> Dict[str, Any]:
     """Run one benchmark through the AxFPGA pipeline in BUILD_DIR/<id>."""
     return run_design(DesignSpec.from_dict(bench), estimator, inner_jobs, work_dir=BUILD_DIR / bench["id"],
-                      evaluator=axbench_apps, cone_variants=CONE_VARIANTS)
+                      evaluator=None, cone_variants=CONE_VARIANTS)
 
 
 
@@ -357,7 +350,8 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     headers = ["id", "name", "method", "fell_back", "bound"]
     for k in res_keys:
         headers += [f"exact_{k}", f"approx_{k}", f"saved_{k}_pct"]
-    headers += ["certification", "wce", "med", "mred_pct", "er", "formal_control", "formal_wce", "app_metric", "app_value", "app_unit", "app_threshold", "app_pass"]
+    headers += ["certification", "wce", "med", "mred_pct", "er", "formal_control", "formal_wce", "app_metric", "app_value", "app_unit", "app_threshold", "app_pass",
+                "heldout_wce", "heldout_med", "heldout_app_value", "heldout_ok"]
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(headers)
@@ -368,6 +362,8 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
             e, a = r["errors"], r["app"]
             row += [result_tier(r).value, e["wce"], e["med"], e["mred_pct"], e["er"], r["formal"]["control_equivalence"], r["formal"]["wce_bound"],
                     a["name"], _fmt(a["value"], 4), a["unit"], a["threshold"], a["pass"]]
+            h = r.get("heldout")
+            row += [h["errors"]["wce"], h["errors"]["med"], _fmt(h["app"]["value"], 4), h["within_limits"]] if h else ["", "", "", ""]
             w.writerow(row)
 
     # Only certified results (every applicable proof PROVEN) feed the headline tables; the rest are listed below them.
@@ -415,9 +411,9 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
 
     md += ["", "## 3. Error metrics and formal verification", "",
            "Errors are measured on each benchmark's application stimulus, with the relaxed output decoded in its number format "
-           "(two's complement / sign-magnitude, LSB units). Limits come from the application tolerance (see ERROR_BUDGET). "
-           f"Every reported approximation satisfies WCE <= limit, MED <= limit (default WCE/2), MRED <= limit (default {MRED_LIMIT * 100:g} %), "
-           "its application threshold, intact control outputs, and no FALSIFIED formal proof. "
+           "(two's complement / sign-magnitude, LSB units). Limits are the axc_quality constraints of each design (benchmarks/axbench/annotations.py). "
+           "Every reported approximation satisfies all of them (typically WCE, MED, MRED and the application threshold), "
+           "intact control outputs, and no FALSIFIED formal proof. "
            "Designs with array multipliers first try design-level partial-product pruning (largest in-budget anti-diagonal depth, "
            f"binary search, {MAX_PPG_EVALS} steps max); otherwise cone candidates are tried cheapest first (up to {MAX_ATTEMPTS}, each "
            f"reintegrated as {' then '.join(CONE_VARIANTS)}). If none passes, the exact design is reported.", "",
@@ -438,6 +434,19 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     md += ["", "Stimulus per benchmark:", ""]
     for r in results:
         md.append(f"- **{r['name']}**: {r['app']['note']} ({r['app']['samples']} samples)")
+
+    md += ["", "### Held-out stream", "",
+           "Selection used the stimulus above only. The accepted design is re-evaluated once on an independent stream "
+           "(derived seed, other image, or second half of a stimulus file); reported, not enforced.", "",
+           "| Benchmark | WCE | MED | Application metric | Within limits | Stimulus |", "|:--|--:|--:|:--|:--|:--|"]
+    for r in results:
+        h = r.get("heldout")
+        if not h:
+            md.append(f"| {r['name']} | n/a | n/a | n/a | n/a | {r.get('heldout_reason') or ''} |")
+            continue
+        a = h["app"]
+        md.append(f"| {r['name']} | {h['errors']['wce']:.0f} | {h['errors']['med']:.3f} | {a['name']} {_fmt(a['value'], 3)} {a['unit']} | "
+                  f"{'yes' if h['within_limits'] else 'NO'} | {h['note']} |")
 
     if uncertified:
         md += ["", "## Not certified (excluded from the tables above)", "",

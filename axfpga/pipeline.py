@@ -13,7 +13,12 @@ Application-level checks (stimulus, error statistics, application metric, power 
     error_stats(id, exact_outputs, approx_outputs, relax_wire, skip) -> {wce, med, mred, er}
     app_metrics(id, vectors, exact_outputs, approx_outputs, relax_wire=, skip=) -> dict
     power_vectors(id, vectors) -> vectors
-(scripts/axbench_apps.py is the AxBench implementation.)
+and, optionally, for the held-out stream
+    build_heldout(id) -> (vectors, ctx) | None
+    app_metrics_for(stream, vectors, exact_outputs, approx_outputs, skip) -> dict
+Pass ``evaluator=None`` to let the pipeline build a ``QualityEvaluator`` from the axc_* attributes of the relaxed wire
+(axfpga/quality): axc_format, axc_quality constraints, axc_stimulus / axc_plugin / axc_seed. Selection uses the tuning
+stream only; the held-out stream is evaluated once on the accepted design and reported in ``result["heldout"]``.
 """
 
 from __future__ import annotations
@@ -40,7 +45,10 @@ from axfpga.config import yosys_cmd
 from axfpga.estimator import FpgaEstimator
 from axfpga.parallel import Cancelled, depth_search, first_accepted, yosys_serialized
 from axfpga.ppg_pruner import PpgPruner
+from axfpga.ports import resolve_clock_reset
 from axfpga.pyals_bridge import PyAlsBridge
+from axfpga.quality import QualitySpec, make_evaluator
+from axfpga.quality.attrs import WireQuality
 from axfpga.reintegrator import Reintegrator
 from axfpga.tournament import Tournament
 from axfpga.verifier import FormalControlVerifier, FormalWceVerifier, MiterVerifier
@@ -74,11 +82,23 @@ class DesignSpec:
     med_limit: Optional[float] = None       # None disables; from_dict defaults it to bound * MED_FRACTION_OF_BOUND
     mred_limit: Optional[float] = None      # None disables; from_dict defaults it to MRED_LIMIT
     patches: List[Tuple[str, str, str]] = field(default_factory=list)   # (file name, old text, new text) on private copies
+    quality_attrs: Dict[str, Any] = field(default_factory=dict)   # axc_* attributes inserted on the relaxed wire of the
+                              # private annotated copy: {"format": "sm16q9", "quality": "wce<=26;...", "plugin": "x.py", "seed": 1}
+    search_dirs: List[Path] = field(default_factory=list)          # where relative plugin / stimulus paths are looked up
+    stimulus: Optional[str] = None          # overrides axc_stimulus
+    plugin: Optional[str] = None            # overrides axc_plugin
+    seed: Optional[int] = None              # overrides axc_seed
+    samples: int = 1000                     # default random stimulus length (axc_samples overrides)
+    signed: bool = False                    # Verilog-signed relaxed wire (selects the legacy MRED reference)
+    clock: Optional[str] = None             # explicit clock / reset ports (axc_clock / axc_reset attributes win)
+    reset: Optional[str] = None
+    reset_active_low: Optional[bool] = None
     annotated: bool = False   # sources already carry (* axc_relax *) / (* axc_precise *); do not insert attributes.
                               # bound/metric then override the attribute values in the Cone metadata.
 
     def __post_init__(self) -> None:
         self.files = [Path(f) for f in self.files]
+        self.search_dirs = [Path(d) for d in self.search_dirs]
         self.name = self.name or self.id
 
     @classmethod
@@ -99,13 +119,34 @@ def annotate_verilog(
     precise_signals: List[str],
     bound: float,
     metric: str = "wce",
+    attrs: Optional[Dict[str, Any]] = None,
+    clock: Optional[str] = None,
+    reset: Optional[str] = None,
+    reset_active_low: Optional[bool] = None,
 ) -> List[Path]:
-    """Insert IEEE Verilog attributes (* axc_relax *) and (* axc_precise *) into design files."""
+    """Insert IEEE Verilog attributes (* axc_relax *) and (* axc_precise *) into design files.
+
+    ``attrs`` adds more axc_* items to the relaxed wire ("format" or "axc_format" -> axc_format="..."); ``clock`` /
+    ``reset`` add the axc_clock / axc_reset markers to those input ports.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     annotated_files: List[Path] = []
 
-    attr_relax = f'(* axc_relax, axc_metric="{metric.lower()}", axc_bound={int(bound)} *) '
-    attr_precise = "(* axc_precise *) "
+    extra = ""
+    for k, v in (attrs or {}).items():
+        k = k if k.startswith("axc_") else f"axc_{k}"
+        extra += f', {k}={v}' if isinstance(v, (int, float)) and not isinstance(v, bool) else f', {k}="{v}"'
+    attr_relax = f'(* axc_relax, axc_metric="{metric.lower()}", axc_bound={int(bound)}{extra} *) '
+
+    def port_attr(name: str) -> str:
+        roles = []
+        if name in precise_signals:
+            roles.append("axc_precise")
+        if name == clock:
+            roles.append("axc_clock")
+        if name == reset:
+            roles.append('axc_reset="low"' if reset_active_low else "axc_reset")
+        return f"(* {', '.join(roles)} *) "
 
     for fpath in input_files:
         content = fpath.read_text(encoding="utf-8", errors="ignore")
@@ -126,13 +167,14 @@ def annotate_verilog(
                     pat_any = rf"\boutput\s+((?:\[[^\]]+\]\s*)?{re.escape(relax_wire)}\b)"
                     new_top = re.sub(pat_any, rf"{attr_relax}output \g<1>", top_block, count=1)
 
-            for p_sig in precise_signals:
+            for p_sig in list(dict.fromkeys([*precise_signals, *(n for n in (clock, reset) if n)])):
+                attr_p = port_attr(p_sig)
                 pat_in = rf"(?m)^([ \t]*)input\s+((?:\[[^\]]+\]\s*)?{re.escape(p_sig)}\b)"
                 if re.search(pat_in, new_top):
-                    new_top = re.sub(pat_in, rf"\g<1>{attr_precise}input \g<2>", new_top, count=1)
+                    new_top = re.sub(pat_in, lambda m: f"{m.group(1)}{attr_p}input {m.group(2)}", new_top, count=1)
                 else:
                     pat_in_any = rf"\binput\s+((?:\[[^\]]+\]\s*)?{re.escape(p_sig)}\b)"
-                    new_top = re.sub(pat_in_any, rf"{attr_precise}input \g<1>", new_top, count=1)
+                    new_top = re.sub(pat_in_any, lambda m: f"{attr_p}input {m.group(1)}", new_top, count=1)
 
             modified = modified[:top_m.start()] + new_top + modified[top_m.end():]
 
@@ -165,18 +207,35 @@ def _patched_files(spec: DesignSpec, work: Path) -> List[Path]:
 
 
 @yosys_serialized
-def _top_ports(files: List[Path], top: str) -> Dict[str, Any]:
-    """Top-level ports of the exact design, with clock/reset split out."""
+def _top_ports(files: List[Path], top: str, clock: Optional[str] = None, reset: Optional[str] = None,
+               reset_active_low: Optional[bool] = None, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Top-level ports of the exact design, with clock/reset split out.
+
+    Clock and reset: axc_clock / axc_reset attributes (``meta``), then the explicit arguments, then a name guess.
+    """
     d = ys.Design()
     ys.run_pass(" ".join(f"read_verilog -sv {f};" for f in files) + f" hierarchy -top {top}", d)
     mod = d.top_module()
     ins = [(w.name.str().lstrip("\\"), w.width) for w in mod.wires_.values() if w.port_input]
     outs = [(w.name.str().lstrip("\\"), w.width) for w in mod.wires_.values() if w.port_output]
-    clk = next((n for n, _ in ins if n.lower() in ("clk", "clock", "clk_i")), None)
-    rst = next((n for n, _ in ins if n.lower() in ("rst", "reset", "rst_i", "rst_n", "reset_n")), None)
+    cr = resolve_clock_reset([{"name": n, "width": w} for n, w in ins], meta or {}, clock, reset, reset_active_low)
+    clk, rst = cr["clk"], cr["rst"]
     data_ins = [(n, w) for n, w in ins if n not in (clk, rst)]
     return {"inputs": data_ins, "outputs": outs, "clk": clk, "rst": rst,
-            "rst_active_low": bool(rst and rst.lower().endswith("_n"))}
+            "rst_active_low": bool(rst and cr["rst_active_low"]), "all_inputs": ins}
+
+
+def _with_meta_ports(ports: Dict[str, Any], meta: Dict[str, Any], clock: Optional[str], reset: Optional[str],
+                     reset_active_low: Optional[bool]) -> Dict[str, Any]:
+    """Re-resolve clock / reset once the cone metadata (axc_clock / axc_reset) is known. Pure Python: the Yosys
+    read of the exact design stays where it was (before the cone extraction), as IdString order depends on it."""
+    if not (meta.get("clock") or meta.get("reset")):
+        return ports
+    ins = ports["all_inputs"]
+    cr = resolve_clock_reset([{"name": n, "width": w} for n, w in ins], meta, clock, reset, reset_active_low)
+    clk, rst = cr["clk"], cr["rst"]
+    return {**ports, "inputs": [(n, w) for n, w in ins if n not in (clk, rst)], "clk": clk, "rst": rst,
+            "rst_active_low": bool(rst and cr["rst_active_low"])}
 
 
 def _normalize_rtl(src: Path, top: str, out: Path) -> Path:
@@ -328,29 +387,18 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     exact_top_v = bench_work / "exact_baseline_top.v"
     exact_top_v.write_text("\n".join(f.read_text(encoding="utf-8", errors="ignore") for f in bench["files"]), encoding="utf-8")
 
-    # Application stimulus (shared by every attempt)
-    ports = _top_ports(bench["files"], top_mod)
-    vectors, ctx = evaluator.build_stimulus(bench_id)
+    ports = _top_ports(bench["files"], top_mod, bench["clock"], bench["reset"], bench["reset_active_low"])
     app_dir = bench_work / "app"
     app_dir.mkdir(parents=True, exist_ok=True)
-    sim_kw = dict(top=top_mod, inputs=ports["inputs"], outputs=ports["outputs"], work_dir=app_dir,
-                  clk=ports["clk"], rst=ports["rst"], rst_active_low=ports["rst_active_low"])
-    skip = 16 if ports["clk"] else 0
-    med_limit, mred_limit = bench["med_limit"], bench["mred_limit"]
 
     # Stage 1: exact baseline synthesis and exact application reference. Both are subprocess-only,
     # so they overlap with the cone extraction (pyosys, main thread) below.
     logger.info("[Stage 1] Yosys synth_xilinx of exact baseline...")
     exact_map_v, exact_map_j = bench_work / "exact_mapped.v", bench_work / "exact_mapped.json"
 
-    def exact_reference() -> Dict[str, Any]:
-        norm = _normalize_rtl(exact_top_v, top_mod, app_dir / "exact_norm.v")
-        return run_vector_sim([norm], vectors=vectors, tag="app_exact", **sim_kw)
-
     pre = ThreadPoolExecutor(max_workers=2 if inner_jobs > 1 else 1)
     f_synth = pre.submit(estimator.evaluate_netlist, exact_top_v, top_module=top_mod, work_dir=bench_work,
                          out_mapped_vlog=exact_map_v, out_mapped_json=exact_map_j)
-    f_sim = pre.submit(exact_reference) if inner_jobs > 1 else None
 
     # Stage 2: Attribute Annotation & Safe Cone Extraction
     logger.info("[Stage 2] Annotating Verilog attributes and extracting safe combinational cone...")
@@ -370,6 +418,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             precise_signals=bench["precise_signals"],
             bound=bench["bound"],
             metric=bench["metric"],
+            attrs=bench["quality_attrs"],
+            clock=bench["clock"], reset=bench["reset"], reset_active_low=bench["reset_active_low"],
         )
 
     cone_v = bench_work / "extracted_cone.v"
@@ -395,6 +445,22 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     has_safe_cone = cone_v.exists() and len(meta.get("safe_cells", [])) > 0 and meta.get("status") not in ("NO_RELAX_SIGNALS", "TAINTED_EMPTY_SAFE_SET")
     cone_meta = meta_json if meta_json.exists() else None
 
+    # Application stimulus (shared by every attempt) and quality constraints. These need the cone metadata
+    # (axc_* attributes of the relaxed wire, clock / reset ports).
+    ports = _with_meta_ports(ports, meta, bench["clock"], bench["reset"], bench["reset_active_low"])
+    if evaluator is None:
+        evaluator = _quality_evaluator(spec, bench, meta, ports)
+    quality = _resolve_quality(evaluator, bench)
+    vectors, ctx = evaluator.build_stimulus(bench_id)
+    sim_kw = dict(top=top_mod, inputs=ports["inputs"], outputs=ports["outputs"], work_dir=app_dir,
+                  clk=ports["clk"], rst=ports["rst"], rst_active_low=ports["rst_active_low"])
+    skip = 16 if ports["clk"] else 0
+
+    def exact_reference() -> Dict[str, Any]:
+        norm = _normalize_rtl(exact_top_v, top_mod, app_dir / "exact_norm.v")
+        return run_vector_sim([norm], vectors=vectors, tag="app_exact", **sim_kw)
+
+    f_sim = pre.submit(exact_reference) if inner_jobs > 1 else None
     exact_res = f_synth.result()
     exact_sim = f_sim.result() if f_sim else exact_reference()
     pre.shutdown()
@@ -439,19 +505,12 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         fails = []
         if miter.get("control_integrity") != "PASSED":
             fails.append("control outputs corrupted")
-        if bench["metric"].upper() == "MED":      # the budget is a mean error, not a worst case
-            if errs["med"] > bench["bound"]:
-                fails.append(f"MED {errs['med']:.3f} > {bench['bound']:g}")
-        elif errs["wce"] > bench["bound"]:
-            fails.append(f"WCE {errs['wce']:g} > {bench['bound']:g}")
-        if med_limit is not None and errs["med"] > med_limit:
-            fails.append(f"MED {errs['med']:.3f} > {med_limit:g}")
-        if mred_limit is not None and errs["mred"] > mred_limit:
-            fails.append(f"MRED {errs['mred'] * 100:.4f}% > {mred_limit * 100:g}%")
-        if app["pass"] is False:
-            fails.append(f"{app['name']} {fmt(app['value'], 3)} {app['unit']} fails {app['threshold']}")
+        q_fails, q_recs = quality.evaluate(errs, None, app)     # every constraint must hold, fixed message order
+        fails += q_fails
         rec.update(wce=errs["wce"], med=errs["med"], mred_pct=errs["mred"] * 100.0, app_value=app["value"],
-                   err_ok=not fails, _errs=errs, _app=app)
+                   err_ok=not fails, _errs=errs, _app=app, _quality=q_recs)
+        if not fails:
+            rec["_sim_out"] = sim["outputs"]      # kept for the held-out reuse; dropped for rejected candidates
         if fails or not rec["savings_ok"]:
             rec.update(outcome="rejected", reason="; ".join(fails + ([] if rec["savings_ok"] else [no_sav])))
             logger.info("  %s [%s]: rejected: %s", label, variant, rec["reason"])
@@ -471,7 +530,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
                     exact_res["estimated_lcs"], rec["lcs"], e["wce"], e["med"], e["mred"] * 100,
                     rec["_app"]["name"], fmt(rec["_app"]["value"], 3), formal_ctrl, formal_wce)
         return {"name": rec["candidate"] + (f" [{rec['variant']}]" if rec["variant"] in variants else ""),
-                "res": rec["_res"], "errs": e, "app": rec["_app"], "formal_ctrl": formal_ctrl, "formal_wce": formal_wce}
+                "res": rec["_res"], "errs": e, "app": rec["_app"], "formal_ctrl": formal_ctrl, "formal_wce": formal_wce,
+                "quality": rec["_quality"], "sim_out": rec.get("_sim_out")}
 
     # Stage 3a: design-level partial-product pruning of every array multiplier (UB1BPPG cells), before flattening.
     # Binary search over the anti-diagonal depth; with inner jobs the next two possible depths are evaluated
@@ -594,11 +654,32 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         app = evaluator.app_metrics(bench_id, vectors, exact_sim["outputs"], exact_sim["outputs"],
                                        relax_wire=bench["relax_wire"], skip=skip)
         formal_ctrl = formal_wce = "N/A (exact design kept)"
+        _, q_recs = quality.evaluate(evaluator.error_stats(bench_id, exact_sim["outputs"], exact_sim["outputs"],
+                                                           bench["relax_wire"], skip), None, app)
     else:
         approx_res, method, errs, app = accepted["res"], accepted["name"], accepted["errs"], accepted["app"]
         formal_ctrl, formal_wce = accepted["formal_ctrl"], accepted["formal_wce"]
+        q_recs = accepted["quality"]
     app["note"] = ctx.get("note", "")
     app["samples"] = len(vectors)
+
+    # Stage 7b: held-out stream, evaluated once on the accepted design. Reported, never fed back into selection.
+    heldout: Optional[Dict[str, Any]] = None
+    heldout_reason: Optional[str] = None
+    if fell_back:
+        heldout_reason = "exact design kept; nothing to evaluate"
+    elif not hasattr(evaluator, "build_heldout"):
+        heldout_reason = "evaluator provides no held-out stream"
+    else:
+        try:
+            logger.info("[Stage 7b] Held-out stream evaluation of the accepted design...")
+            heldout = _heldout(evaluator, quality, bench_id, bench["relax_wire"], skip, vectors, exact_sim["outputs"],
+                               accepted["sim_out"], app_dir / "exact_norm.v", final_approx_top_v, top_mod, sim_kw)
+        except Exception as exc:                  # reported, not enforced: a held-out failure must not lose the design
+            logger.warning("Held-out evaluation failed: %s", exc)
+            heldout_reason = f"held-out evaluation failed: {exc}"
+    if accepted is not None:
+        accepted.pop("sim_out", None)
 
     # Stage 8: activity-based power of mapped netlists
     logger.info("[Stage 8] Activity-based dynamic power @ %.0f MHz...", F_CLK_MHZ)
@@ -644,12 +725,74 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         },
         "formal": {"control_equivalence": formal_ctrl, "wce_bound": formal_wce},
         "certification": certification_record(formal_ctrl, formal_wce, exact_design=fell_back),
-        "limits": {"wce": bench["bound"], "med": med_limit, "mred_pct": None if mred_limit is None else mred_limit * 100.0,
-                   "app": app["threshold"]},
+        "limits": {"wce": bench["bound"], "med": quality.med_limit,
+                   "mred_pct": None if quality.mred_limit is None else quality.mred_limit * 100.0, "app": app["threshold"]},
+        "quality": q_recs,
+        "heldout": heldout,
+        "heldout_reason": heldout_reason,
         "attempts": attempts,
         "app": app,
         "power_model": {k: exact_pwr[k] for k in ("method", "f_clk_mhz", "energy_pj")} | {"cycles": exact_pwr["cycles"]},
     }
+
+
+def _resolve_quality(evaluator: Any, bench: Dict[str, Any]) -> QualitySpec:
+    """The constraint set of the run: the evaluator's attribute constraints, else the legacy budget fields.
+
+    The formal bound (``bench["bound"]``, from --bound or the attributes) always wins for the wce constraint.
+    """
+    q = getattr(evaluator, "_quality", None)
+    if q is None:
+        return QualitySpec.legacy(bench["bound"], bench["metric"], bench["med_limit"], bench["mred_limit"])
+    if q.wce_bound is not None and q.wce_bound != float(bench["bound"]):
+        logger.warning("wce<=%g of axc_quality replaced by the bound %g of the run", q.wce_bound, bench["bound"])
+        q = q.with_wce(float(bench["bound"]))
+        evaluator._quality = q
+    return q
+
+
+def _quality_evaluator(spec: DesignSpec, bench: Dict[str, Any], meta: Dict[str, Any], ports: Dict[str, Any]):
+    """QualityEvaluator from the attributes of the relaxed wire in the cone metadata (plus DesignSpec overrides)."""
+    wire = bench["relax_wire"]
+    sig = next((s for s in meta.get("relaxed_signals") or [] if s.get("wire") == wire), None) or {}
+    width = dict(ports["outputs"]).get(wire)
+    if width is None:
+        raise ValueError(f"relaxed signal {wire!r} is not an output port of {spec.top}; error statistics need a top output")
+    if sig.get("quality"):
+        wq = WireQuality.from_dict(sig["quality"])
+    else:
+        wq = WireQuality(wire=wire, width=width, bound=bench["bound"])
+    over = {k: v for k, v in (("stimulus", spec.stimulus), ("plugin", spec.plugin), ("seed", spec.seed)) if v is not None}
+    if over:
+        wq = dataclasses.replace(wq, **over)
+    search = [*spec.search_dirs]
+    return make_evaluator(wq, design_id=spec.id, top=spec.top, inputs=ports["inputs"], outputs=ports["outputs"],
+                          has_clock=bool(ports["clk"]), base_dir=Path(bench["files"][0]).resolve().parent,
+                          search_dirs=search, default_samples=spec.samples, signed=spec.signed,
+                          quality=wq.quality)
+
+
+def _heldout(evaluator: Any, quality: QualitySpec, bench_id: str, wire: str, skip: int, tuning_vectors, exact_out,
+             approx_out, exact_norm: Path, approx_top: Path, top_mod: str, sim_kw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Exact and accepted-approximate simulation on the held-out stream; error statistics, constraints, application metric."""
+    built = evaluator.build_heldout(bench_id)
+    if built is None:
+        return None
+    hv, hctx = built
+    if hv == tuning_vectors:                       # same stream (e.g. an exhaustive table): reuse the tuning outputs
+        h_exact, h_approx = exact_out, approx_out
+    else:
+        h_exact = run_vector_sim([exact_norm], vectors=hv, tag="heldout_exact", **sim_kw)["outputs"]
+        norm = _normalize_rtl(approx_top, top_mod, Path(sim_kw["work_dir"]) / "heldout_approx_norm.v")
+        h_approx = run_vector_sim([norm], vectors=hv, tag="heldout_approx", **sim_kw)["outputs"]
+    errs = evaluator.error_stats(bench_id, h_exact, h_approx, wire, skip)
+    app = evaluator.app_metrics_for("heldout", hv, h_exact, h_approx, skip)
+    fails, recs = quality.evaluate(errs, None, app)
+    app["note"], app["samples"] = hctx.get("note", ""), len(hv)
+    return {"samples": len(hv), "note": hctx.get("note", ""),
+            "errors": {"wce": errs["wce"], "med": round(errs["med"], 4), "mred_pct": round(errs["mred"] * 100.0, 4),
+                       "er": round(errs["er"], 4)},
+            "quality": recs, "app": app, "within_limits": not fails, "violations": fails}
 
 
 def fmt(v: Any, nd: int = 2) -> str:

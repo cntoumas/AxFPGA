@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from pyosys import libyosys as ys
 
+
 logger = logging.getLogger("cone_extractor")
 
 
@@ -202,8 +203,15 @@ class ConeExtractor:
         attr_bound_id = ys.IdString(r"\axc_bound")
         attr_lsb_id = ys.IdString(r"\axc_lsb_width")
 
+        port_meta: Dict[str, Any] = {}
         for wname_id, wire in top.wires_.items():
             wname = wname_id.str()
+            raw_attrs = self._collect_axc_attrs(wire)
+            if "axc_clock" in raw_attrs or "axc_reset" in raw_attrs:
+                if not wire.port_input:
+                    raise ValueError(f"axc_clock/axc_reset on '{wname.lstrip(chr(92))}': "
+                                     f"only input ports can be clock or reset")
+                self._record_port_roles(port_meta, wname.lstrip("\\"), raw_attrs)
             has_relax = wire.has_attribute(attr_relax_id)
             has_precise = wire.has_attribute(attr_precise_id)
 
@@ -220,7 +228,7 @@ class ConeExtractor:
                         bound = float(bound_val)
                     except (ValueError, TypeError):
                         raise ValueError(f"axc_bound of '{wname.lstrip(chr(92))}' is not a number: {bound_val!r}")
-                else:
+                elif "wce" not in str(raw_attrs.get("axc_quality", "")).lower():
                     logger.warning("(* axc_relax *) wire '%s' has no axc_bound; a bound must be given "
                                    "(attribute or override) before approximation", wname.lstrip("\\"))
 
@@ -234,13 +242,21 @@ class ConeExtractor:
 
                 lsb_w = max(0, min(lsb_w, wire.width))
 
-                relaxed_signals_meta.append({
+                sig_meta: Dict[str, Any] = {
                     "wire": wname.lstrip("\\"),
                     "width": wire.width,
                     "metric": metric,
                     "bound": bound,
                     "lsb_width": lsb_w,
-                })
+                }
+                from axfpga.quality.attrs import has_phase2_attrs, parse_wire_attrs
+                if has_phase2_attrs(raw_attrs):
+                    wq = parse_wire_attrs(raw_attrs, sig_meta["wire"], wire.width)
+                    sig_meta["quality"] = wq.to_dict()
+                    sig_meta["reserved"] = dict(wq.reserved)
+                    if wq.wce_bound is not None:
+                        sig_meta["bound"] = wq.wce_bound
+                relaxed_signals_meta.append(sig_meta)
 
                 if self.decompose_operators and lsb_w < wire.width:
                     for i in range(lsb_w):
@@ -329,6 +345,7 @@ class ConeExtractor:
             return {
                 "top_module": self.top_module_name,
                 "status": "NO_RELAX_SIGNALS",
+                **port_meta,
                 "safe_cells": [],
                 "relaxed_signals": [],
             }
@@ -375,6 +392,7 @@ class ConeExtractor:
             return {
                 "top_module": self.top_module_name,
                 "status": "TAINTED_EMPTY_SAFE_SET",
+                **port_meta,
                 "safe_cells": [],
                 "relaxed_signals": relaxed_signals_meta,
             }
@@ -570,6 +588,8 @@ class ConeExtractor:
             "files": result_files,
         }
 
+        meta_result.update(port_meta)
+
         if out_meta_path:
             out_meta_p = Path(out_meta_path).resolve()
             out_meta_p.parent.mkdir(parents=True, exist_ok=True)
@@ -578,6 +598,31 @@ class ConeExtractor:
             result_files["metadata_json"] = str(out_meta_p)
 
         return meta_result
+
+    @staticmethod
+    def _collect_axc_attrs(wire: ys.Wire) -> Dict[str, Any]:
+        """All ``axc_*`` attributes of a wire, decoded, keyed by their bare name."""
+        out: Dict[str, Any] = {}
+        for k, v in wire.attributes.items():
+            name = k.str().lstrip("\\")
+            if name.startswith("axc_"):
+                out[name] = decode_attr(v)
+        return out
+
+    @staticmethod
+    def _record_port_roles(port_meta: Dict[str, Any], name: str, raw: Dict[str, Any]) -> None:
+        """Fold axc_clock / axc_reset of one input into the top-level meta keys."""
+        from axfpga.quality.attrs import parse_port_attrs
+        roles = parse_port_attrs(raw, name)
+        if roles["clock"]:
+            if "clock" in port_meta:
+                raise ValueError(f"two inputs carry axc_clock ('{port_meta['clock']}','{name}')")
+            port_meta["clock"] = name
+        if roles["reset"]:
+            if "reset" in port_meta:
+                raise ValueError(f"two inputs carry axc_reset ('{port_meta['reset']}','{name}')")
+            port_meta["reset"] = name
+            port_meta["reset_active_low"] = roles["reset"] == "low"
 
     def _find_connected_components(
         self,

@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional
 
 from pyosys import libyosys as ys
 
+from axfpga.ports import resolve_clock_reset
+
 logger = logging.getLogger("trace_extractor")
 
 
@@ -106,23 +108,18 @@ class TraceExtractor:
             if wire.port_output:
                 top_outputs.append({"name": name, "width": wire.width, "is_signed": bool(wire.is_signed)})
 
-        # Detect clk, reset, valid signals
-        clk_name = None
-        rst_name = None
-        rst_active_low = True
+        # Detect clk, reset (axc_clock/axc_reset from cone meta, else name guess), valid signals
+        cr = resolve_clock_reset(top_inputs, getattr(self, "meta", None))
+        clk_name = cr["clk"]
+        rst_name = cr["rst"]
+        rst_active_low = cr["rst_active_low"]
         valid_in_name = None
 
         for inp in top_inputs:
             n = inp["name"].lower()
-            if n in ("clk", "clock", "clk_i"):
-                clk_name = inp["name"]
-            elif n in ("rst_n", "reset_n", "rstn", "rst_b", "reset_b"):
-                rst_name = inp["name"]
-                rst_active_low = True
-            elif n in ("rst", "reset", "rst_i"):
-                rst_name = inp["name"]
-                rst_active_low = False
-            elif "valid" in n or "enable" in n or "en" == n:
+            if inp["name"] in (clk_name, rst_name):
+                continue
+            if "valid" in n or "enable" in n or "en" == n:
                 if valid_in_name is None:
                     valid_in_name = inp["name"]
 

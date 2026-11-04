@@ -71,6 +71,17 @@
       },
       "additionalProperties": true
     },
+    "qualityRecord": {
+      "type": "object",
+      "required": ["metric", "op", "threshold", "value", "pass"],
+      "properties": {
+        "metric": { "type": "string" },
+        "op": { "enum": ["<=", "<", ">=", ">"] },
+        "threshold": { "type": "number" },
+        "value": { "type": ["number", "null"], "description": "null when infinite or unavailable." },
+        "pass": { "type": "boolean" }
+      }
+    },
     "certification": {
       "type": "object",
       "description": "Certified = every applicable proof PROVEN (or the exact design kept); bounded-certified = PROVEN or BOUNDED with at least one BOUNDED; uncertified = anything else (TIMEOUT, INCONCLUSIVE, ERROR, N/A, FALSIFIED).",
@@ -145,6 +156,29 @@
             "app": { "type": ["string", "null"] }
           }
         },
+        "quality": { "type": "array", "items": { "$ref": "#/$defs/qualityRecord" }, "description": "One record per constraint, tuning stream." },
+        "heldout": {
+          "type": ["object", "null"],
+          "description": "Held-out stream evaluation of the accepted design (reported, never used for selection); null with heldout_reason when not evaluated.",
+          "required": ["samples", "note", "errors", "quality", "app", "within_limits"],
+          "properties": {
+            "samples": { "type": "integer", "minimum": 0 },
+            "note": { "type": "string" },
+            "errors": {
+              "type": "object",
+              "required": ["wce", "med", "mred_pct", "er"],
+              "properties": {
+                "wce": { "type": ["number", "null"] }, "med": { "type": ["number", "null"] },
+                "mred_pct": { "type": ["number", "null"] }, "er": { "type": ["number", "null"] }
+              }
+            },
+            "quality": { "type": "array", "items": { "$ref": "#/$defs/qualityRecord" } },
+            "app": { "type": "object" },
+            "within_limits": { "type": "boolean" },
+            "violations": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "heldout_reason": { "type": ["string", "null"] },
         "attempts": { "type": "array", "items": { "$ref": "#/$defs/attempt" } },
         "app": {
           "type": "object",
