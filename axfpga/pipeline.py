@@ -18,7 +18,8 @@ and, optionally, for the held-out stream
     app_metrics_for(stream, vectors, exact_outputs, approx_outputs, skip) -> dict
 Pass ``evaluator=None`` to let the pipeline build a ``QualityEvaluator`` from the axc_* attributes of the relaxed wire
 (axfpga/quality): axc_format, axc_quality constraints, axc_stimulus / axc_plugin / axc_seed. Selection uses the tuning
-stream only; the held-out stream is evaluated once on the accepted design and reported in ``result["heldout"]``.
+stream; the held-out stream is evaluated on the accepted design and reported in ``result["heldout"]``. For PPG-pruned
+designs (no WCE proof) it also gates acceptance: a depth that fails a constraint there is skipped.
 """
 
 from __future__ import annotations
@@ -533,6 +534,20 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
                 "res": rec["_res"], "errs": e, "app": rec["_app"], "formal_ctrl": formal_ctrl, "formal_wce": formal_wce,
                 "quality": rec["_quality"], "sim_out": rec.get("_sim_out")}
 
+    ho_cache: Dict[str, Any] = {}
+
+    def heldout_violations(rec: Dict[str, Any], top_v: Path, tag: str) -> List[str]:
+        """Constraint violations of a candidate on the held-out stream (empty: passes, or no held-out stream)."""
+        if not hasattr(evaluator, "build_heldout"):
+            return []
+        try:
+            h = _heldout(evaluator, quality, bench_id, bench["relax_wire"], skip, vectors, exact_sim["outputs"],
+                         rec.get("_sim_out"), app_dir / "exact_norm.v", top_v, top_mod, sim_kw, cache=ho_cache, tag=tag)
+        except Exception as exc:                  # cannot be evaluated: do not lose the candidate
+            logger.warning("Held-out gate for %s failed: %s", rec["candidate"], exc)
+            return []
+        return [] if h is None else list(h["violations"])
+
     # Stage 3a: design-level partial-product pruning of every array multiplier (UB1BPPG cells), before flattening.
     # Binary search over the anti-diagonal depth; with inner jobs the next two possible depths are evaluated
     # speculatively. The visited depths and the choice are identical to the serial search.
@@ -563,8 +578,18 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             evaluated[k] = rec
         # Synthesized size is not monotone in k (pruned zeros reshape the Wallace tree), so pick the
         # cheapest evaluated depth that passed every check, not simply the deepest in-budget one.
-        passing = [(r["lcs"], r["luts"], -k, k) for k, r in evaluated.items() if r["err_ok"] and r["savings_ok"]]
-        best_k = min(passing)[3] if passing else None
+        # A PPG-pruned design has no WCE proof: its errors are only sampled. The cheapest passing depth is therefore
+        # also checked on the held-out stream (never used for the search itself), and the next cheapest is taken if it fails.
+        passing = sorted((r["lcs"], r["luts"], -k, k) for k, r in evaluated.items() if r["err_ok"] and r["savings_ok"])
+        best_k = None
+        for _lcs, _luts, _nk, k in passing:
+            viol = heldout_violations(evaluated[k], ppg_dir / f"design_ppg_k{k}.v", f"heldout_ppg{k}")
+            if viol:
+                evaluated[k].update(outcome="rejected", reason="held-out stream: " + "; ".join(viol))
+                logger.info("  ppg_design_k%d rejected on the held-out stream: %s", k, "; ".join(viol))
+                continue
+            best_k = k
+            break
         best = evaluated.get(best_k) if best_k is not None else None
         lo = best_k if best_k is not None else lo
         if best is not None:
@@ -663,7 +688,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     app["note"] = ctx.get("note", "")
     app["samples"] = len(vectors)
 
-    # Stage 7b: held-out stream, evaluated once on the accepted design. Reported, never fed back into selection.
+    # Stage 7b: held-out stream, evaluated on the accepted design and reported. It is used only as an acceptance gate
+    # for PPG-pruned designs (Stage 3a), never for the search.
     heldout: Optional[Dict[str, Any]] = None
     heldout_reason: Optional[str] = None
     if fell_back:
@@ -674,7 +700,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         try:
             logger.info("[Stage 7b] Held-out stream evaluation of the accepted design...")
             heldout = _heldout(evaluator, quality, bench_id, bench["relax_wire"], skip, vectors, exact_sim["outputs"],
-                               accepted["sim_out"], app_dir / "exact_norm.v", final_approx_top_v, top_mod, sim_kw)
+                               accepted["sim_out"], app_dir / "exact_norm.v", final_approx_top_v, top_mod, sim_kw,
+                               cache=ho_cache)
         except Exception as exc:                  # reported, not enforced: a held-out failure must not lose the design
             logger.warning("Held-out evaluation failed: %s", exc)
             heldout_reason = f"held-out evaluation failed: {exc}"
@@ -773,18 +800,27 @@ def _quality_evaluator(spec: DesignSpec, bench: Dict[str, Any], meta: Dict[str, 
 
 
 def _heldout(evaluator: Any, quality: QualitySpec, bench_id: str, wire: str, skip: int, tuning_vectors, exact_out,
-             approx_out, exact_norm: Path, approx_top: Path, top_mod: str, sim_kw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Exact and accepted-approximate simulation on the held-out stream; error statistics, constraints, application metric."""
-    built = evaluator.build_heldout(bench_id)
+             approx_out, exact_norm: Path, approx_top: Path, top_mod: str, sim_kw: Dict[str, Any],
+             cache: Optional[Dict[str, Any]] = None, tag: str = "heldout") -> Optional[Dict[str, Any]]:
+    """Exact and accepted-approximate simulation on the held-out stream; error statistics, constraints, application metric.
+
+    ``cache`` keeps the held-out stimulus and the exact outputs across calls (the gate evaluates several candidates);
+    ``tag`` keeps the file names of different candidates apart."""
+    cache = cache if cache is not None else {}
+    if "built" not in cache:
+        cache["built"] = evaluator.build_heldout(bench_id)
+    built = cache["built"]
     if built is None:
         return None
     hv, hctx = built
     if hv == tuning_vectors:                       # same stream (e.g. an exhaustive table): reuse the tuning outputs
         h_exact, h_approx = exact_out, approx_out
     else:
-        h_exact = run_vector_sim([exact_norm], vectors=hv, tag="heldout_exact", **sim_kw)["outputs"]
-        norm = _normalize_rtl(approx_top, top_mod, Path(sim_kw["work_dir"]) / "heldout_approx_norm.v")
-        h_approx = run_vector_sim([norm], vectors=hv, tag="heldout_approx", **sim_kw)["outputs"]
+        if "exact" not in cache:
+            cache["exact"] = run_vector_sim([exact_norm], vectors=hv, tag="heldout_exact", **sim_kw)["outputs"]
+        h_exact = cache["exact"]
+        norm = _normalize_rtl(approx_top, top_mod, Path(sim_kw["work_dir"]) / f"{tag}_approx_norm.v")
+        h_approx = run_vector_sim([norm], vectors=hv, tag=f"{tag}_approx", **sim_kw)["outputs"]
     errs = evaluator.error_stats(bench_id, h_exact, h_approx, wire, skip)
     app = evaluator.app_metrics_for("heldout", hv, h_exact, h_approx, skip)
     fails, recs = quality.evaluate(errs, None, app)
