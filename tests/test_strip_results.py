@@ -37,3 +37,10 @@ def test_a_different_netlist_changes_the_manifest(tmp_path: Path):
     mb = strip_results.manifest(tmp_path / "b" / "reports", tmp_path / "b" / "work", [])
     assert ma["manifest"]["results.json"] == mb["manifest"]["results.json"]
     assert ma["manifest"]["netlists"]["b1/approx_mapped.v"] != mb["manifest"]["netlists"]["b1/approx_mapped.v"]
+
+
+def test_certification_field_is_ignored(tmp_path: Path):
+    """Results with the post-Phase-0 certification field strip to the same text as the anchor."""
+    base = {"id": "b1", "formal": {"wce_bound": "PROVEN"}}
+    with_cert = dict(base, certification={"tier": "certified", "proofs": {}, "reason": ""})
+    assert strip_results.strip(with_cert, []) == strip_results.strip(base, [])

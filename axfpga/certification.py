@@ -58,3 +58,27 @@ def certify(statuses: Iterable[object], exact_design: bool = False) -> Certifica
 def status_text(status: ProofStatus, cycles: Optional[int] = None) -> str:
     """Display form: ``BOUNDED(16)`` for bounded results, the plain value otherwise."""
     return f"{status.value}({cycles})" if status is ProofStatus.BOUNDED and cycles is not None else status.value
+
+
+def certification_record(formal_control: object, formal_wce: object, exact_design: bool = False) -> dict:
+    """The ``certification`` field of a result: tier, per-proof status and, when not certified, why."""
+    ctrl, wce = ProofStatus.parse(formal_control), ProofStatus.parse(formal_wce)
+    tier = certify([formal_control, formal_wce], exact_design=exact_design)
+    reason = ""
+    if exact_design:
+        reason = "exact design kept: no approximation applied"
+    elif tier is not Certification.CERTIFIED:
+        bad = [f"{n}={s.value}" for n, s in (("control_equivalence", ctrl), ("wce_bound", wce))
+               if s is not ProofStatus.PROVEN]
+        reason = ("; ".join(bad) + (" (holds for a bounded number of cycles only)" if tier is Certification.BOUNDED else
+                                    " (no guarantee)"))
+    return {"tier": tier.value, "proofs": {"control_equivalence": ctrl.value, "wce_bound": wce.value}, "reason": reason}
+
+
+def result_tier(result: dict) -> Certification:
+    """Tier of a result record; records written before the field existed are derived from their formal statuses."""
+    cert = result.get("certification")
+    if isinstance(cert, dict) and "tier" in cert:
+        return Certification(cert["tier"])
+    f = result.get("formal", {})
+    return certify([f.get("control_equivalence"), f.get("wce_bound")], exact_design=bool(result.get("fell_back")))

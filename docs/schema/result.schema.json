@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://axfpga.invalid/schema/result.schema.json",
+  "title": "AxFPGA results.json",
+  "description": "results.json written by the AxFPGA pipeline: an array with one result record per design. A record is headline-eligible only when certification.tier is \"certified\".",
+  "type": "array",
+  "items": { "$ref": "#/$defs/result" },
+  "$defs": {
+    "proofStatus": {
+      "description": "Outcome of one formal check: PROVEN, BOUNDED(N), TIMEOUT, INCONCLUSIVE, FALSIFIED, ERROR or N/A (optionally followed by a note).",
+      "type": "string",
+      "pattern": "^(PROVEN|BOUNDED|TIMEOUT|INCONCLUSIVE|FALSIFIED|ERROR|N/A)([( ].*)?$"
+    },
+    "proofEnum": {
+      "enum": ["PROVEN", "BOUNDED", "TIMEOUT", "INCONCLUSIVE", "FALSIFIED", "ERROR", "N/A"]
+    },
+    "number": { "type": "number" },
+    "nullableNumber": { "type": ["number", "null"] },
+    "utilization": {
+      "type": "object",
+      "required": ["luts", "ffs", "dsps", "brams", "carry4", "logic_cells", "dynamic_power_mw",
+                   "lut_util_pct", "ff_util_pct", "dsp_util_pct", "bram_util_pct"],
+      "properties": {
+        "luts": { "type": "integer", "minimum": 0 },
+        "ffs": { "type": "integer", "minimum": 0 },
+        "dsps": { "type": "integer", "minimum": 0 },
+        "brams": { "type": "integer", "minimum": 0 },
+        "ramb18": { "type": "integer", "minimum": 0 },
+        "ramb36": { "type": "integer", "minimum": 0 },
+        "carry4": { "type": "integer", "minimum": 0 },
+        "logic_cells": { "type": "integer", "minimum": 0, "description": "LUT + 2 x CARRY4" },
+        "dynamic_power_mw": { "type": "number", "minimum": 0 },
+        "lut_util_pct": { "type": "number" },
+        "ff_util_pct": { "type": "number" },
+        "dsp_util_pct": { "type": "number" },
+        "bram_util_pct": { "type": "number" },
+        "power_breakdown": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "cells": { "type": "integer" },
+              "toggles": { "type": "integer" },
+              "active_cycles": { "type": "integer" },
+              "power_mw": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "attempt": {
+      "type": "object",
+      "required": ["candidate", "outcome"],
+      "properties": {
+        "candidate": { "type": "string" },
+        "variant": { "type": "string" },
+        "outcome": { "enum": ["accepted", "rejected", "passed checks"] },
+        "reason": { "type": "string" },
+        "savings_ok": { "type": "boolean" },
+        "err_ok": { "type": "boolean" },
+        "lcs": { "type": "integer" },
+        "luts": { "type": "integer" },
+        "cone_lcs": { "type": "integer" },
+        "cone_baseline_lcs": { "type": "integer" },
+        "wce": { "type": ["number", "null"] },
+        "med": { "type": ["number", "null"] },
+        "mred_pct": { "type": ["number", "null"] },
+        "app_value": { "type": ["number", "null"] },
+        "formal_control": { "$ref": "#/$defs/proofStatus" },
+        "formal_wce": { "$ref": "#/$defs/proofStatus" }
+      },
+      "additionalProperties": true
+    },
+    "certification": {
+      "type": "object",
+      "description": "Certified = every applicable proof PROVEN (or the exact design kept); bounded-certified = PROVEN or BOUNDED with at least one BOUNDED; uncertified = anything else (TIMEOUT, INCONCLUSIVE, ERROR, N/A, FALSIFIED).",
+      "required": ["tier", "proofs", "reason"],
+      "properties": {
+        "tier": { "enum": ["certified", "bounded-certified", "uncertified"] },
+        "proofs": {
+          "type": "object",
+          "required": ["control_equivalence", "wce_bound"],
+          "properties": {
+            "control_equivalence": { "$ref": "#/$defs/proofEnum" },
+            "wce_bound": { "$ref": "#/$defs/proofEnum" }
+          },
+          "additionalProperties": false
+        },
+        "reason": { "type": "string", "description": "Empty for certified designs with an approximation; otherwise why the tier is not certified." }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "object",
+      "required": ["id", "name", "domain", "top", "device", "engine", "method", "fell_back", "fallback_reason",
+                   "metric", "bound", "exact", "approx", "savings_pct", "errors", "formal", "certification",
+                   "limits", "attempts", "app", "power_model"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string" },
+        "domain": { "type": "string" },
+        "top": { "type": "string" },
+        "device": { "type": "string" },
+        "engine": { "type": "string" },
+        "method": { "type": "string", "description": "Chosen approximation, or \"exact (fallback)\"." },
+        "fell_back": { "type": "boolean" },
+        "fallback_reason": { "type": ["string", "null"] },
+        "metric": { "type": "string" },
+        "bound": { "type": ["number", "null"], "description": "Cone WCE bound." },
+        "exact": { "$ref": "#/$defs/utilization" },
+        "approx": { "$ref": "#/$defs/utilization" },
+        "savings_pct": {
+          "type": "object",
+          "required": ["luts", "ffs", "dsps", "brams", "carry4", "logic_cells", "dynamic_power_mw"],
+          "additionalProperties": { "type": "number" }
+        },
+        "errors": {
+          "type": "object",
+          "required": ["wce", "med", "mred_pct", "er", "domain"],
+          "properties": {
+            "wce": { "type": ["number", "null"] },
+            "med": { "type": ["number", "null"] },
+            "mred_pct": { "type": ["number", "null"] },
+            "er": { "type": ["number", "null"] },
+            "domain": { "type": "string" }
+          }
+        },
+        "formal": {
+          "type": "object",
+          "required": ["control_equivalence", "wce_bound"],
+          "properties": {
+            "control_equivalence": { "$ref": "#/$defs/proofStatus" },
+            "wce_bound": { "$ref": "#/$defs/proofStatus" }
+          },
+          "additionalProperties": false
+        },
+        "certification": { "$ref": "#/$defs/certification" },
+        "limits": {
+          "type": "object",
+          "required": ["wce", "med", "mred_pct", "app"],
+          "properties": {
+            "wce": { "type": ["number", "null"] },
+            "med": { "type": ["number", "null"] },
+            "mred_pct": { "type": ["number", "null"] },
+            "app": { "type": ["string", "null"] }
+          }
+        },
+        "attempts": { "type": "array", "items": { "$ref": "#/$defs/attempt" } },
+        "app": {
+          "type": "object",
+          "required": ["name", "value", "unit", "threshold", "pass", "note", "samples"],
+          "properties": {
+            "name": { "type": "string" },
+            "value": { "type": ["number", "null"], "description": "null when infinite (exact match)." },
+            "unit": { "type": "string" },
+            "threshold": { "type": ["string", "null"] },
+            "pass": { "type": ["boolean", "null"] },
+            "note": { "type": "string" },
+            "samples": { "type": "integer", "minimum": 0 },
+            "extra": { "type": "object", "additionalProperties": { "type": ["number", "string", "null"] } }
+          }
+        },
+        "power_model": {
+          "type": "object",
+          "required": ["method", "f_clk_mhz", "energy_pj", "cycles"],
+          "properties": {
+            "method": { "type": "string" },
+            "f_clk_mhz": { "type": "number" },
+            "energy_pj": { "type": "object", "additionalProperties": { "type": "number" } },
+            "cycles": { "type": "integer", "minimum": 0 }
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

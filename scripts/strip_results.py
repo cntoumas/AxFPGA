@@ -23,13 +23,15 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 VOLATILE_KEY = re.compile(r"(^|_)(time|times|elapsed|wall|seconds|date|timestamp)(_|$)", re.IGNORECASE)
+# Added after the Phase-0 anchor; derived from the formal statuses, so not part of the comparison.
+IGNORED_KEYS = frozenset({"certification"})
 NETLISTS = ("exact_mapped.v", "approx_mapped.v")
 
 
 def strip(obj: Any, prefixes: List[str]) -> Any:
     """Drop volatile keys; replace machine-specific path prefixes with placeholders."""
     if isinstance(obj, dict):
-        return {k: strip(v, prefixes) for k, v in obj.items() if not VOLATILE_KEY.search(k)}
+        return {k: strip(v, prefixes) for k, v in obj.items() if not VOLATILE_KEY.search(k) and k not in IGNORED_KEYS}
     if isinstance(obj, list):
         return [strip(v, prefixes) for v in obj]
     if isinstance(obj, str):

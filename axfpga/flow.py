@@ -1,33 +1,28 @@
-"""Top-Level Flow Orchestrator for Attribute-Driven Approximate Computing.
+"""Top-level flow and CLI for attribute-driven approximate computing on FPGA.
 
-Coordinates the complete pipeline:
-1. RTLIL Relaxability Analysis & Cone Extraction (Pyosys)
-2. pyALS Candidate Tournament (champion approximate cone)
-3. Parent Shell & Approximated Cone Re-integration (Yosys)
-4. Attribute-Driven SDC Timing Relaxation Generation
-5. Automated Miter Verification (Icarus Verilog)
+Reads Verilog sources annotated with (* axc_relax *) / (* axc_precise *) / (* axc_bound *), runs the pipeline
+(axfpga/pipeline.py: exact synthesis, design-level PPG pruning, pyALS Candidate Tournament with fallback,
+simulation and formal checks, power) and adds the SDC timing constraints and a Vivado script.
 """
 
 from __future__ import annotations
 
 import argparse
+import ctypes
 import json
 import logging
+import os
+import re
 import shutil
 import sys
-from dataclasses import asdict
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from axfpga.cone_extractor import ConeExtractor
 from axfpga.estimator import FpgaEstimator
-from axfpga.pyals_bridge import PyAlsBridge
-from axfpga.reintegrator import Reintegrator
+from axfpga.pipeline import DesignSpec, GenericEvaluator, _top_ports, run_design
 from axfpga.sdc_generator import SdcGenerator
-from axfpga.tournament import Tournament
-from axfpga.trace_extractor import TraceExtractor
-from axfpga.verifier import MiterVerifier
 
 logger = logging.getLogger("axc_flow")
 
@@ -37,11 +32,11 @@ class AxcFlow:
 
     def __init__(
         self,
-        input_verilog: str | Path,
+        input_verilog: str | Path | Sequence[str | Path],
         output_dir: str | Path,
         clk_port: str = "clk",
         clk_period_ns: float = 10.0,
-        sim_samples: int = 500,
+        sim_samples: int = 1000,
         verify_cycles: int = 500,
         decompose_operators: bool = False,
         use_realistic_traces: bool = True,
@@ -53,334 +48,197 @@ class AxcFlow:
         fpga_family: str = "xc7",
         fpga_device: str = "xc7a35t",
         fpga_nodsp: bool = False,
+        top: Optional[str] = None,
+        dsp: Optional[bool] = None,
     ):
-        self.input_verilog = Path(input_verilog).resolve()
+        files = [input_verilog] if isinstance(input_verilog, (str, Path)) else list(input_verilog)
+        self.input_files: List[Path] = [Path(f).resolve() for f in files]
+        self.input_verilog = self.input_files[0]
         self.output_dir = Path(output_dir).resolve()
+        self.top = top
         self.clk_port = clk_port
         self.clk_period_ns = clk_period_ns
         self.sim_samples = sim_samples
-        self.verify_cycles = verify_cycles
-        self.decompose_operators = decompose_operators
-        self.use_realistic_traces = use_realistic_traces
-        self.stimulus_file = Path(stimulus_file).resolve() if stimulus_file else None
-        self.enable_formal = enable_formal
-        self.formal_timeout = formal_timeout
-        self.axc_method = axc_method
         self.override_bound = float(override_bound) if override_bound is not None else None
         self.fpga_family = fpga_family.lower()
         self.fpga_device = fpga_device.lower()
-        self.fpga_nodsp = fpga_nodsp
+        self.fpga_nodsp = (not dsp) if dsp is not None else fpga_nodsp
+        self.axc_method = axc_method
+        # Accepted for API compatibility (sweep/budgeter); the pipeline fixes these: 1000-cycle miter, 120 s SAT
+        # timeout, formal checks always on, random stimulus.
+        ignored = []
+        if not enable_formal:
+            ignored.append("enable_formal=False")
+        if stimulus_file:
+            ignored.append("stimulus_file")
+        if ignored:
+            logger.warning("Ignored by the pipeline: %s", ", ".join(ignored))
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    @staticmethod
+    def _is_signed(files: Sequence[Path], wire: str) -> bool:
+        for f in files:
+            if re.search(rf"\bsigned\b[^;,)]*\b{re.escape(wire)}\b", f.read_text(errors="ignore")):
+                return True
+        return False
+
     def run(self) -> Dict[str, Any]:
         """Execute the end-to-end flow."""
-        start_time = time.time()
+        start = time.time()
         logger.info("=== STARTING AXC EDA FLOW ===")
-        logger.info("Input Verilog: %s", self.input_verilog)
-        logger.info("Output Directory: %s", self.output_dir)
-        logger.info("Target: %s / %s", self.fpga_family, self.fpga_device)
+        logger.info("Input Verilog: %s", ", ".join(map(str, self.input_files)))
+        logger.info("Output Directory: %s | target %s/%s | DSP %s", self.output_dir, self.fpga_family,
+                    self.fpga_device, "off" if self.fpga_nodsp else "on")
 
-        # -------------------------------------------------------------
-        # STEP 1: Cone Extraction
-        # -------------------------------------------------------------
-        current_input_vlog = self.input_verilog
-        logger.info("--- Step 1: RTLIL Relaxability Analysis & Cone Extraction ---")
-        submod_vlog = self.output_dir / "extracted_cone.v"
-        top_shell_vlog = self.output_dir / "top_shell.v"
-        meta_json_path = self.output_dir / "cone_meta.json"
+        # Discover top, relaxed output and budget from the attributes in the sources.
+        scan_dir = self.output_dir / "scan"
+        scan_dir.mkdir(parents=True, exist_ok=True)
+        scan = ConeExtractor(self.input_files, top_module=self.top).extract_safe_cone(
+            submod_tag="axc_cone_0", out_submod_path=scan_dir / "cone.v",
+            out_top_path=scan_dir / "shell.v", out_meta_path=scan_dir / "meta.json")
+        top = scan.get("top_module") or self.top or "unknown"
+        relaxed = scan.get("relaxed_signals", [])
+        if scan.get("status") == "NO_RELAX_SIGNALS" or not relaxed:
+            summary = {"flow_status": "STOPPED", "reason": scan.get("status", "NO_RELAX_SIGNALS"), "top_module": top,
+                       "elapsed_seconds": round(time.time() - start, 2), "details": scan}
+            (self.output_dir / "flow_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            return summary
+        shutil.rmtree(scan_dir, ignore_errors=True)
 
-        extractor = ConeExtractor(verilog_path=current_input_vlog, decompose_operators=self.decompose_operators)
-        cone_result = extractor.extract_safe_cone(
-            submod_tag="axc_cone_0",
-            out_submod_path=submod_vlog,
-            out_top_path=top_shell_vlog,
-            out_meta_path=meta_json_path,
-        )
-
-        if cone_result.get("status") != "SUCCESS":
-            elapsed = time.time() - start_time
-            status_reason = cone_result.get("status", "EXTRACTION_FAILED")
-            logger.warning("Cone extraction halted with status: %s", status_reason)
-            stopped_summary: Dict[str, Any] = {
-                "flow_status": "STOPPED",
-                "reason": status_reason,
-                "top_module": cone_result.get("top_module", "unknown"),
-                "elapsed_seconds": round(elapsed, 2),
-                "details": cone_result,
-            }
-            summary_path = self.output_dir / "flow_summary.json"
-            with open(summary_path, "w", encoding="utf-8") as f:
-                json.dump(stopped_summary, f, indent=2)
-            return stopped_summary
-
-        relaxed_signals = cone_result.get("relaxed_signals", [])
-        logger.info("Identified %d relaxed signal(s): %s", len(relaxed_signals), [s.get("wire") for s in relaxed_signals])
-        for s in relaxed_signals:
-            logger.info("  Signal: %s | Metric: %s | Bound: %s | LSB: %s",
-                        s.get("wire"), s.get("metric"), s.get("bound"), s.get("lsb_width"))
-
-        primary_metric = relaxed_signals[0].get("metric", "MED") if relaxed_signals else "MED"
-        # When multiple relaxed signals exist, target the most restrictive (minimum) bound
-        bounds_list = [float(s["bound"]) for s in relaxed_signals if s.get("bound") is not None]
+        bounds = [float(s["bound"]) for s in relaxed if s.get("bound") is not None]
         if self.override_bound is not None:
-            primary_bound = self.override_bound
-            for s in relaxed_signals:          # verification uses the same bound as the Tournament
-                if s.get("bound") is None:
-                    s["bound"] = primary_bound
-            meta_json_path.write_text(json.dumps(cone_result, indent=2), encoding="utf-8")
-        elif bounds_list and len(bounds_list) == len(relaxed_signals):
-            primary_bound = min(bounds_list)
+            bound = self.override_bound
+        elif len(bounds) == len(relaxed):
+            bound = min(bounds)          # most restrictive of several relaxed signals
         else:
-            missing = [s.get("wire") for s in relaxed_signals if s.get("bound") is None]
+            missing = [s.get("wire") for s in relaxed if s.get("bound") is None]
             raise ValueError(f"(* axc_relax *) signal(s) {missing} have no axc_bound; annotate them or pass --bound")
+        wire = relaxed[0]["wire"]
+        if len(relaxed) > 1:
+            logger.warning("%d relaxed signals; error statistics are measured on %s", len(relaxed), wire)
+        metric = str(relaxed[0].get("metric") or "WCE").upper()
 
-        # -------------------------------------------------------------
-        # STEP 1.5: Realistic Pipeline Trace Extraction
-        # -------------------------------------------------------------
-        trace_hex_path = None
-        if self.use_realistic_traces:
-            logger.info("--- Step 1.5: Realistic Pipeline Trace Extraction ---")
-            trace_cand = self.output_dir / "cone_trace.hex"
-            try:
-                trace_extractor = TraceExtractor(
-                    top_shell_path=top_shell_vlog,
-                    extracted_cone_path=submod_vlog,
-                    meta_json=meta_json_path,
-                )
-                trace_res = trace_extractor.extract_traces(
-                    out_trace_hex=trace_cand,
-                    num_samples=self.sim_samples,
-                    stimulus_file=self.stimulus_file,
-                    clk_period_ns=self.clk_period_ns,
-                )
-                if trace_res.get("status") == "SUCCESS":
-                    trace_hex_path = trace_cand
-                    logger.info("Captured %d realistic datapath vectors for the Tournament", trace_res.get("num_vectors", 0))
-                else:
-                    logger.warning("Trace extraction was not successful (%s); falling back to synthetic dataset", trace_res.get("status"))
-            except Exception as exc:
-                logger.warning("Trace extraction encountered error (%s); falling back to synthetic dataset", exc)
+        ports = _top_ports(self.input_files, top)
+        width = dict(ports["outputs"]).get(wire)
+        if width is None:
+            summary = {"flow_status": "STOPPED", "top_module": top, "elapsed_seconds": round(time.time() - start, 2),
+                       "reason": f"relaxed signal {wire!r} is not an output port of {top}; error statistics need a top output"}
+            (self.output_dir / "flow_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+            return summary
+        evaluator = GenericEvaluator(ports["inputs"], width, n_vectors=max(self.sim_samples, 64),
+                                     signed=self._is_signed(self.input_files, wire))
+        spec = DesignSpec(id=top, top=top, files=self.input_files, relax_wire=wire, bound=bound, metric=metric,
+                          annotated=True, med_limit=None, mred_limit=None)
+        work = self.output_dir / "work"
+        est = FpgaEstimator(family=self.fpga_family, device=self.fpga_device, nodsp=self.fpga_nodsp)
+        result = run_design(spec, est, work_dir=work, evaluator=evaluator, tournament_estimator=est)
+        result["device"] = self.fpga_device
+        # Schema-valid record list (docs/schema/result.schema.json is an array of results)
+        (self.output_dir / "result.json").write_text(json.dumps([result], indent=2, default=str), encoding="utf-8")
 
-        # -------------------------------------------------------------
-        # STEP 2: Logic Approximation (Native FPGA or pyALS)
-        # -------------------------------------------------------------
-        approx_cone_vlog = self.output_dir / "approx_cone.v"
-
-        logger.info("--- Step 2: pyALS Candidate Tournament ---")
-        if self.axc_method.lower() not in ("auto", "pyals", "als"):
-            logger.warning("Approximation method '%s' is deprecated; AxFPGA runs pyALS only.", self.axc_method)
-        tournament_dir = self.output_dir / "tournament"
-        bridge = PyAlsBridge(
-            cone_verilog_path=submod_vlog,
-            meta_json_path=meta_json_path,
-            work_dir=tournament_dir,
-        )
-        tournament = Tournament(
-            estimator=FpgaEstimator(family=self.fpga_family, device=self.fpga_device, nodsp=self.fpga_nodsp),
-            work_dir=tournament_dir,
-            sim_samples=self.sim_samples,
-        )
-        champion = tournament.run(
-            cone_vlog=submod_vlog,
-            meta_json=meta_json_path,
-            metric=primary_metric,
-            bound=primary_bound,
-            generators=[bridge],
-            trace_hex=trace_hex_path,
-        )
-        shutil.copy(champion.netlist_path, approx_cone_vlog)
-
-        # -------------------------------------------------------------
-        # STEP 3: Re-Integration
-        # -------------------------------------------------------------
-        logger.info("--- Step 3: Top Shell and Approximate Cone Re-integration ---")
-        final_top_vlog = self.output_dir / "final_approx_top.v"
-
-        reintegrator = Reintegrator(
-            top_shell_path=top_shell_vlog,
-            approx_cone_path=approx_cone_vlog,
-            extracted_cone_path=submod_vlog,
-        )
-        reint_result = reintegrator.reintegrate(out_final_path=final_top_vlog)
-
-        # -------------------------------------------------------------
-        # STEP 4: SDC Constraint Generation
-        # -------------------------------------------------------------
-        logger.info("--- Step 4: Attribute-Driven SDC Timing Constraint Generation ---")
-        out_sdc_path = self.output_dir / "final_approx_top.sdc"
-
-        sdc_gen = SdcGenerator(
-            clk_port=self.clk_port,
-            clk_period_ns=self.clk_period_ns,
-            relaxation_factor=1.5,
-            constraint_mode="max_delay",
-        )
-        sdc_gen.generate_sdc(metadata=cone_result, out_sdc_path=out_sdc_path)
-
-        # -------------------------------------------------------------
-        # STEP 5: Automated Verification
-        # -------------------------------------------------------------
-        logger.info("--- Step 5: Miter Verification Harness ---")
-        verifier = MiterVerifier(
-            exact_vlog=self.input_verilog,
-            approx_vlog=final_top_vlog,
-            meta_json=meta_json_path,
-            num_cycles=self.verify_cycles,
-            enable_formal=self.enable_formal,
-            formal_timeout=self.formal_timeout,
-            extracted_cone_vlog=submod_vlog,
-            approx_cone_vlog=approx_cone_vlog,
-        )
-        verify_result = verifier.verify()
-
-        # -------------------------------------------------------------
-        # STEP 6: FPGA Resource Evaluation
-        # -------------------------------------------------------------
-        fpga_info: Dict[str, Any] = {}
-
-        logger.info("--- Step 6: FPGA Resource Estimation & Utilization (%s / %s) ---", self.fpga_family, self.fpga_device)
+        # SDC timing relaxation from the attribute metadata
+        sdc = self.output_dir / "final_approx_top.sdc"
+        meta_path = work / "cone_meta.json"
+        if meta_path.exists():
+            SdcGenerator(clk_port=self.clk_port, clk_period_ns=self.clk_period_ns, relaxation_factor=1.5,
+                         constraint_mode="max_delay").generate_sdc(metadata=json.loads(meta_path.read_text()),
+                                                                   out_sdc_path=sdc)
+        final_top = work / "final_approx_top.v"
+        files = {"final_approx_top": str(final_top), "exact_mapped": str(work / "exact_mapped.v"),
+                 "approx_mapped": str(work / "approx_mapped.v"), "sdc_constraints": str(sdc) if sdc.exists() else None,
+                 "metadata": str(meta_path)}
         try:
-            fpga_estimator = FpgaEstimator(
-                family=self.fpga_family,
-                device=self.fpga_device,
-                nodsp=self.fpga_nodsp,
-            )
-            fpga_info = fpga_estimator.compare_exact_vs_approx(
-                exact_netlist=self.input_verilog,
-                approx_netlist=final_top_vlog,
-                top_module=cone_result.get("top_module"),
-                work_dir=self.output_dir,
-            )
-            logger.info(
-                "FPGA Resource Savings [%s]: LUTs=%d (-%.2f%%) | CARRY4=%d (-%.2f%%) | Estimated LCs=%d (-%.2f%%)",
-                self.fpga_device,
-                fpga_info["luts_saved"],
-                fpga_info["lut_reduction_pct"],
-                fpga_info["carry_saved"],
-                fpga_info["carry_reduction_pct"],
-                fpga_info["lcs_saved"],
-                fpga_info["lc_reduction_pct"],
-            )
-
-            # Phase 1.3: Generate Vivado sign-off batch synthesis script (Zybo / PYNQ / Artix-7)
             from axfpga.vivado import VivadoBatchRunner
-            vivado_runner = VivadoBatchRunner(part=self.fpga_device or "xc7z010clg400-1")
-            vivado_tcl = self.output_dir / "run_vivado_synth.tcl"
-            vivado_runner.generate_tcl(
-                top_module=cone_result.get("top_module"),
-                verilog_files=[final_top_vlog],
-                out_tcl_path=vivado_tcl,
-                sdc_file=out_sdc_path if out_sdc_path.exists() else None,
-            )
-            fpga_info["vivado_tcl"] = str(vivado_tcl)
+            tcl = self.output_dir / "run_vivado_synth.tcl"
+            VivadoBatchRunner(part=self.fpga_device or "xc7z010clg400-1").generate_tcl(
+                top_module=top, verilog_files=[final_top], out_tcl_path=tcl, sdc_file=sdc if sdc.exists() else None)
+            files["vivado_tcl"] = str(tcl)
         except Exception as exc:
-            logger.warning("FPGA resource estimation could not be completed: %s", exc)
+            logger.warning("Vivado script not generated: %s", exc)
 
-        elapsed = time.time() - start_time
-        logger.info("=== FLOW FINISHED IN %.2f SECONDS ===", elapsed)
-
-        formal_verification = verify_result.get("formal_verification", {})
-
+        formal = result["formal"]
         summary: Dict[str, Any] = {
-            "flow_status": "SUCCESS" if verify_result.get("status") == "PASSED" else "VERIFICATION_FAILED",
+            "flow_status": "NO_APPROXIMATION" if result["fell_back"] else "SUCCESS",
             "target": "fpga",
-            "elapsed_seconds": round(elapsed, 2),
-            "top_module": cone_result.get("top_module", "unknown"),
-            "submodule_module": cone_result.get("submodule_module", ""),
-            "extracted_safe_cells": cone_result.get("num_safe_cells", 0),
-            "trace_driven": {
-                "enabled": self.use_realistic_traces and trace_hex_path is not None,
-                "trace_file": str(trace_hex_path) if trace_hex_path else None,
-            },
-            "formal_control_status": formal_verification.get("control_equivalence", {}).get("status", "DISABLED"),
-            "formal_wce_status": formal_verification.get("wce_bound", {}).get("status", "DISABLED"),
-            "approximation": {
-                "metric": primary_metric,
-                "bound": primary_bound,
-                "method": self.axc_method,
-                "champion_method": champion.name,
-                "leaderboard": [asdict(e) for e in champion.leaderboard],
-                "fell_back": champion.fell_back,
-                "baseline_lcs": champion.baseline_lcs,
-                "optimized_lcs": champion.lcs,
-                "lc_savings_pct": champion.lc_savings_pct,
-                "relaxed_signals": relaxed_signals,
-                "measured_error": champion.error,
-                "pruned_nodes": None,
-                "initial_area": None,
-                "approx_area": None,
-                "area_savings_percent": None,
-            },
-            "fpga": fpga_info,
-            "verification": verify_result,
-            "generated_files": {
-                "top_shell": str(top_shell_vlog),
-                "extracted_cone": str(submod_vlog),
-                "cone_trace": str(trace_hex_path) if trace_hex_path else None,
-                "approx_cone": str(approx_cone_vlog),
-                "final_approx_top": str(final_top_vlog),
-                "sdc_constraints": str(out_sdc_path),
-                "metadata": str(meta_json_path),
-            },
+            "dsp": not self.fpga_nodsp,
+            "elapsed_seconds": round(time.time() - start, 2),
+            "top_module": top,
+            "formal_control_status": formal["control_equivalence"],
+            "formal_wce_status": formal["wce_bound"],
+            "approximation": {"metric": metric, "bound": bound, "relaxed_signals": relaxed,
+                              "measured_error": result["errors"], "champion_method": result["method"],
+                              "fell_back": result["fell_back"], "fallback_reason": result["fallback_reason"]},
+            "fpga": {"family": self.fpga_family, "device": self.fpga_device, "exact": result["exact"],
+                     "approx": result["approx"], "savings_pct": result["savings_pct"]},
+            "result": result,
+            "generated_files": files,
         }
-
-        # Write run summary JSON
-        summary_path = self.output_dir / "flow_summary.json"
-        with open(summary_path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2)
-
+        (self.output_dir / "flow_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
+        logger.info("=== FLOW FINISHED IN %.2f SECONDS ===", summary["elapsed_seconds"])
         return summary
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Full AxFPGA Approximate Logic Synthesis Flow Orchestrator")
-    parser.add_argument("-i", "--input", required=True, help="Input annotated Verilog file")
-    parser.add_argument("-o", "--output-dir", default="build/axc_output", help="Output directory")
+def main(argv: Optional[Sequence[str]] = None) -> None:
+    parser = argparse.ArgumentParser(description="AxFPGA: attribute-driven approximate logic synthesis for FPGAs")
+    parser.add_argument("-i", "--input", nargs="+", required=True, metavar="FILE", help="Annotated Verilog file(s)")
+    parser.add_argument("--top", default=None, help="Top module (default: auto-detected)")
+    parser.add_argument("-o", "--out-dir", "--output-dir", dest="out_dir", default="build/axc_output", help="Output directory")
+    parser.add_argument("--dsp", choices=["on", "off"], default="on", help="Allow DSP slice inference (default: on)")
+    parser.add_argument("--nodsp", action="store_true", help="Alias for --dsp off")
     parser.add_argument("--fpga-family", default="xc7", help="Target FPGA family (default: xc7)")
     parser.add_argument("--fpga-device", default="xc7a35t", help="Target FPGA reference device (default: xc7a35t)")
-    parser.add_argument("--nodsp", action="store_true", help="Disable DSP slice inference on FPGA (defaults to allowing DSPs)")
-    parser.add_argument("--allow-dsp", action="store_true", default=True, help="Allow DSP slice inference on FPGA (default: enabled)")
-    parser.add_argument("--clk", "--clk-port", dest="clk", default="clk", help="Clock port name")
+    parser.add_argument("--clk", "--clk-port", dest="clk", default="clk", help="Clock port name for the SDC")
     parser.add_argument("--period", "--clk-period", dest="period", type=float, default=10.0, help="Clock period in ns")
-    parser.add_argument("-s", "--samples", type=int, default=300, help="Simulation samples")
-    parser.add_argument("-n", "--verify-cycles", type=int, default=300, help="Miter verification clock cycles")
-    parser.add_argument("--decompose", action="store_true", help="Decompose coarse-grain arithmetic cells into bit-level primitives")
-    parser.add_argument("-a", "--method", default="pyals", choices=["pyals", "als", "auto"], help="Deprecated and ignored: AxFPGA always runs the pyALS Candidate Tournament")
-    parser.add_argument("-b", "--bound", type=float, default=None, help="Override target error bound")
-    parser.add_argument("--no-trace", action="store_true", help="Disable realistic pipeline trace extraction")
-    parser.add_argument("--stimulus-file", default=None, help="Top-level primary input trace stimulus file")
-    parser.add_argument("--no-formal", action="store_true", help="Disable Yosys SAT formal verification")
-    parser.add_argument("--formal-timeout", type=int, default=60, help="Timeout in seconds for SAT solver")
+    parser.add_argument("-s", "--samples", type=int, default=1000, help="Random stimulus cycles for error measurement")
+    parser.add_argument("-b", "--bound", type=float, default=None, help="Error bound; overrides axc_bound")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging")
+    # Deprecated, accepted and ignored
+    parser.add_argument("-n", "--verify-cycles", type=int, default=300, help=argparse.SUPPRESS)
+    parser.add_argument("--decompose", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("-a", "--method", default="pyals", choices=["pyals", "als", "auto"], help=argparse.SUPPRESS)
+    parser.add_argument("--no-trace", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--stimulus-file", default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--no-formal", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--formal-timeout", type=int, default=60, help=argparse.SUPPRESS)
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        stream=sys.stderr,
     )
 
     flow = AxcFlow(
         input_verilog=args.input,
-        output_dir=args.output_dir,
+        output_dir=args.out_dir,
+        top=args.top,
         clk_port=args.clk,
         clk_period_ns=args.period,
         sim_samples=args.samples,
-        verify_cycles=args.verify_cycles,
-        decompose_operators=args.decompose,
-        use_realistic_traces=not args.no_trace,
-        stimulus_file=args.stimulus_file,
         enable_formal=not args.no_formal,
-        formal_timeout=args.formal_timeout,
-        axc_method=args.method,
+        stimulus_file=args.stimulus_file,
         override_bound=args.bound,
         fpga_family=args.fpga_family,
         fpga_device=args.fpga_device,
-        fpga_nodsp=args.nodsp,
+        dsp=(args.dsp == "on") and not args.nodsp,
     )
-    result = flow.run()
-    print(json.dumps(result, indent=2))
-    if result.get("flow_status") != "SUCCESS":
+    # Yosys (in-process) writes its log to fd 1 through C stdio: point fd 1 at stderr while the flow runs, flush the
+    # C buffers before restoring it, then print the JSON result.
+    sys.stdout.flush()
+    saved = os.dup(1)
+    os.dup2(2, 1)
+    try:
+        result = flow.run()
+    finally:
+        try:
+            ctypes.CDLL(None).fflush(None)
+        except OSError:
+            pass
+        os.dup2(saved, 1)
+        os.close(saved)
+    print(json.dumps(result, indent=2, default=str))
+    if result.get("flow_status") not in ("SUCCESS", "NO_APPROXIMATION"):
         sys.exit(1)
 
 
