@@ -42,6 +42,7 @@ from pyosys import libyosys as ys
 from axfpga.activity_power import estimate_dynamic_power, run_vector_sim
 from axfpga.cone_extractor import ConeExtractor
 from axfpga.certification import certification_record
+from axfpga import cache
 from axfpga.config import yosys_cmd
 from axfpga.estimator import FpgaEstimator
 from axfpga.parallel import Cancelled, depth_search, first_accepted, yosys_serialized
@@ -247,11 +248,16 @@ def _normalize_rtl(src: Path, top: str, out: Path) -> Path:
     """
     lib = "read_verilog -lib +/xilinx/cells_sim.v; " if any(
         p in src.read_text(errors="ignore") for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")) else ""
+    ckey = cache.make_key("norm", [src], top=top, lib=bool(lib))
+    hit = cache.load("norm", ckey)
+    if hit is not None and cache.restore(hit[1], "norm.v", out):
+        return out
     cmd = (f"{lib}read_verilog -sv {src}; hierarchy -check -top {top}; setattr -unset keep_hierarchy; "
            f"proc; flatten; opt_clean; write_verilog -noattr {out}")
     res = subprocess.run(yosys_cmd() + ["-q", "-p", cmd], capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"Yosys normalization of {src.name} failed: {res.stderr[-1500:]}")
+    cache.save("norm", ckey, True, {"norm.v": out})
     return out
 
 

@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional
 
 from pyosys import libyosys as ys
 
+from axfpga import cache
 from axfpga.certification import ProofStatus
 from axfpga.config import xilinx_cells_sim, yosys_cmd
 from axfpga.parallel import YOSYS_LOCK, yosys_serialized
@@ -219,6 +220,7 @@ class FormalControlVerifier:
         miter_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return miter_path
 
+    @cache.cached_verify("formal")
     def verify(self) -> Dict[str, Any]:
         """Execute Yosys SAT temporal induction to prove bit-exact control preservation."""
         sig_info = self._inspect_signals()
@@ -509,6 +511,7 @@ class FormalWceVerifier:
         miter_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return miter_path
 
+    @cache.cached_verify("formal")
     def verify(self) -> Dict[str, Any]:
         """Execute Yosys SAT combinational solver to prove error bound holds across all inputs."""
         ports_info = self._inspect_cone_ports()
@@ -935,6 +938,7 @@ class MiterVerifier:
         tb_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return tb_path
 
+    @cache.cached_verify("miter")
     def verify(self) -> Dict[str, Any]:
         """Compile and execute Miter verification harness (simulation + optional formal proofs)."""
         with tempfile.TemporaryDirectory(prefix="miter_run_") as tmp_dir:

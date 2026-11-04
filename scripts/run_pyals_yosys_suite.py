@@ -30,12 +30,13 @@ import resource
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 # AxFPGA native components
 from axfpga.certification import Certification, result_tier
 from axfpga.estimator import FpgaEstimator
 from axfpga.config import axbench_root
+from axfpga import cache
 from axfpga.pipeline import (CONE_VARIANTS, F_CLK_MHZ, FPGA_DEVICE, FPGA_PART, MAX_ATTEMPTS, MAX_PPG_EVALS,  # noqa: F401
                              DesignSpec, fmt as _fmt, run_design)
 from axfpga.quality import QualitySpec
@@ -327,6 +328,41 @@ def run_benchmark(bench: Dict[str, Any], estimator: FpgaEstimator, inner_jobs: i
 
 
 
+def _json_default(o: Any) -> Any:
+    return None if isinstance(o, float) and math.isinf(o) else str(o)
+
+
+def merge_results(build_dir: Path, out_dir: Path) -> List[Dict[str, Any]]:
+    """Merge the per-benchmark ``<build_dir>/<id>/result.json`` files into the reports in ``out_dir``."""
+    results = []
+    for b in define_benchmark_suite():
+        rj = build_dir / b["id"] / "result.json"
+        if rj.exists():
+            results.append(json.loads(rj.read_text()))
+    if results:
+        export_results(results, out_dir)
+    return results
+
+
+def _rss_gb(pgids: Set[int]) -> float:
+    """Resident memory (GB) of every process in the given process groups (the benchmarks and all their children)."""
+    total_kb = 0
+    page_kb = os.sysconf("SC_PAGE_SIZE") // 1024
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/stat") as f:
+                stat = f.read()
+            pgrp = int(stat[stat.rindex(")") + 2:].split()[2])
+            if pgrp in pgids:
+                with open(f"/proc/{entry}/statm") as f:
+                    total_kb += int(f.read().split()[1]) * page_kb
+        except (OSError, ValueError, IndexError):
+            continue
+    return total_kb / 1048576.0
+
+
 def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     """Write results.json, results.csv and report.md into out_dir (merging earlier benchmarks)."""
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -504,11 +540,14 @@ def _benchmark_process(bench_id: str, build_dir: str, nodsp: bool, cone_variants
         h.setFormatter(logging.Formatter(f"[%(asctime)s] [{bench_id}] [%(levelname)s] %(name)s: %(message)s"))
     bench = next(b for b in define_benchmark_suite() if b["id"] == bench_id)
     t0 = time.time()
+    cache.reset_stats()
     result = run_benchmark(bench, FpgaEstimator(family="xc7", device=FPGA_DEVICE, nodsp=nodsp), inner_jobs)
-    stats = {"id": bench_id, "wall_s": round(time.time() - t0, 1), "inner_jobs": inner_jobs,
+    logger.info("%s", cache.summary())
+    stats = {"id": bench_id, "wall_s": round(time.time() - t0, 1), "inner_jobs": inner_jobs, "cache": cache.stats(),
              "peak_child_rss_mb": round(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024, 1),
              "peak_self_rss_mb": round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024, 1)}
     (BUILD_DIR / bench_id / "stats.json").write_text(json.dumps(stats, indent=2))
+    (BUILD_DIR / bench_id / "result.json").write_text(json.dumps(result, indent=2, default=_json_default))
     with open(result_path, "wb") as f:
         pickle.dump(result, f)
 
@@ -525,15 +564,13 @@ def run_suite(suite: List[Dict[str, Any]], out_dir: Path, jobs: int, inner_jobs:
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     logger.info("Scheduler: %d benchmark(s), up to %d at once, memory budget %.1f GB, inner jobs <= %d",
                 len(pending), jobs, budget_gb, inner_jobs)
+    peak_rss = 0.0                      # peak resident memory (GB) of all benchmark processes and their children
 
     def reap(bench_id: str, proc: Any, rpath: Path, t_start: float) -> None:
         proc.join()
         dt = time.time() - t_start
         if proc.exitcode == 0 and rpath.exists():
-            with open(rpath, "rb") as f:
-                result = pickle.load(f)
-            export_results([result], out_dir)
-            logger.info("[scheduler] %s done in %.0f s", bench_id, dt)
+            logger.info("[scheduler] %s done in %.0f s (result: %s)", bench_id, dt, BUILD_DIR / bench_id / "result.json")
         else:
             logger.error("[scheduler] %s FAILED (exit code %s) after %.0f s", bench_id, proc.exitcode, dt)
             failed.append(bench_id)
@@ -572,7 +609,10 @@ def run_suite(suite: List[Dict[str, Any]], out_dir: Path, jobs: int, inner_jobs:
             proc, _, rpath, t_start = running.pop(bench_id)
             reap(bench_id, proc, rpath, t_start)
             hold_until = 0.0
+        peak_rss = max(peak_rss, _rss_gb({v[0].pid for v in running.values()}))
         time.sleep(2)
+    run_suite.peak_rss_gb = round(peak_rss, 2)
+    logger.info("[scheduler] peak resident memory of all benchmark processes: %.2f GB", peak_rss)
     return failed
 
 
@@ -589,6 +629,9 @@ def main():
                         help="Benchmarks run at once, each in its own process (default 1 = serial, in-process)")
     parser.add_argument("--inner-jobs", type=int, default=INNER_JOBS,
                         help="Concurrent candidate evaluations inside one benchmark (1 = serial); results are identical")
+    parser.add_argument("--no-cache", action="store_true", help="Do not read or write the content-hash cache (build/.cache)")
+    parser.add_argument("--merge", action="store_true",
+                        help="Only merge the per-benchmark result.json files of --build-dir into the reports of --out-dir")
     parser.add_argument("--mem-gb", type=float, default=None,
                         help="Memory budget for the scheduler in GB (default 70%% of RAM)")
     args = parser.parse_args()
@@ -599,6 +642,12 @@ def main():
     BUILD_DIR.mkdir(parents=True, exist_ok=True)
     budget_gb = args.mem_gb if args.mem_gb else _mem_total_gb() * 0.7
 
+    if args.no_cache:
+        cache.disable()                 # inherited by the benchmark processes
+    if args.merge:
+        merged = merge_results(BUILD_DIR, out_dir)
+        logger.info("Merged %d result(s) from %s into %s", len(merged), BUILD_DIR, out_dir)
+        return
     suite = define_benchmark_suite()
     if args.benchmark:
         suite = [b for b in suite if b["id"] in args.benchmark or b["top"] in args.benchmark]
@@ -613,17 +662,26 @@ def main():
 
     t0 = time.time()
     failed: List[str] = []
-    if args.jobs <= 1:
-        estimator = FpgaEstimator(family="xc7", device=FPGA_DEVICE, nodsp=args.nodsp)
-        for bench in suite:
-            try:
-                export_results([run_benchmark(bench, estimator, max(1, args.inner_jobs))], out_dir)
-            except Exception as exc:
-                logger.exception("Benchmark %s failed: %s", bench["id"], exc)
-                failed.append(bench["id"])
-    else:
-        failed = run_suite(suite, out_dir, args.jobs, max(1, args.inner_jobs), budget_gb, args.nodsp)
-    logger.info("Done in %.1f s. Failed: %s", time.time() - t0, failed or "none")
+    # Every benchmark runs in its own process, also with --jobs 1: libyosys keeps global state (name counters), so
+    # benchmarks sharing a process would give results that depend on the run order and on --jobs.
+    failed = run_suite(suite, out_dir, max(1, args.jobs), max(1, args.inner_jobs), budget_gb, args.nodsp)
+    ids = {b["id"] for b in suite} - set(failed)
+    results = [json.loads((BUILD_DIR / i / "result.json").read_text()) for i in sorted(ids) if (BUILD_DIR / i / "result.json").exists()]
+    if results:
+        export_results(results, out_dir)
+    wall = time.time() - t0
+    hits = misses = 0
+    for i in ids:
+        sp = BUILD_DIR / i / "stats.json"
+        if sp.exists():
+            for v in json.loads(sp.read_text()).get("cache", {}).values():
+                hits += v["hits"]
+                misses += v["misses"]
+    (out_dir / "run_stats.json").write_text(json.dumps({
+        "wall_s": round(wall, 1), "jobs": args.jobs, "inner_jobs": args.inner_jobs, "benchmarks": sorted(ids),
+        "peak_rss_gb": getattr(run_suite, "peak_rss_gb", None), "cache_enabled": cache.enabled(),
+        "cache_hits": hits, "cache_misses": misses}, indent=2))
+    logger.info("Done in %.1f s. Failed: %s. Cache: %d hit / %d miss", wall, failed or "none", hits, misses)
     sys.exit(1 if failed else 0)
 
 

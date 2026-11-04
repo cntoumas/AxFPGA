@@ -15,6 +15,7 @@ for any two designs on the same part. Results are estimates, not sign-off power.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -23,6 +24,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
+from axfpga import cache
 from axfpga.config import xilinx_cells_sim
 
 logger = logging.getLogger("axfpga.activity_power")
@@ -89,7 +91,14 @@ def run_vector_sim(
     tb_file = work_dir / f"{tag}_tb.v"
     vvp_file = work_dir / f"{tag}.vvp"
 
-    vec_file.write_text("".join(" ".join(f"{v.get(n, 0) & ((1 << w) - 1):x}" for n, w in inputs) + "\n" for v in vectors))
+    vec_text = "".join(" ".join(f"{v.get(n, 0) & ((1 << w) - 1):x}" for n, w in inputs) + "\n" for v in vectors)
+    vec_file.write_text(vec_text)
+    ckey = cache.make_key("vsim", [str(s) for s in sources], top=top, inputs=inputs, outputs=outputs,
+                          vectors=hashlib.sha256(vec_text.encode()).hexdigest(), clk=clk, rst=rst,
+                          rst_active_low=rst_active_low, reset_cycles=reset_cycles, vcd=vcd)
+    hit = cache.load("vsim", ckey)
+    if hit is not None and (not vcd or cache.restore(hit[1], "sim.vcd", vcd_file)):
+        return {"outputs": [dict(r) for r in hit[0]["outputs"]], "vcd": vcd_file if vcd else None, "cycles": hit[0]["cycles"]}
 
     L: List[str] = ["`timescale 1ns/1ps", "module tb;"]
     if clk:
@@ -154,6 +163,7 @@ def run_vector_sim(
         if len(parts) != len(outputs):
             continue
         rows.append({n: int(re.sub(r"[xXzZ]", "0", p), 16) for (n, _), p in zip(outputs, parts)})
+    cache.save("vsim", ckey, {"outputs": rows, "cycles": len(rows)}, {"sim.vcd": vcd_file} if vcd else None)
     return {"outputs": rows, "vcd": vcd_file if vcd else None, "cycles": len(rows)}
 
 

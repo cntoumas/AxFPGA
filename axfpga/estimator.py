@@ -16,6 +16,7 @@ import json
 import logging
 import re
 import subprocess
+from axfpga import cache
 from axfpga.config import yosys_cmd
 import time
 from pathlib import Path
@@ -90,6 +91,14 @@ class FpgaEstimator:
             raise FileNotFoundError(f"Netlist file not found: {netlist}")
 
         t0 = time.time()
+        ckey = cache.make_key("synth", [netlist], top=top_module, family=self.family, nodsp=self.nodsp,
+                              vlog=bool(out_mapped_vlog), json=bool(out_mapped_json))
+        hit = cache.load("synth", ckey)
+        if hit is not None:
+            res, fdir = hit
+            if (not out_mapped_vlog or cache.restore(fdir, "mapped.v", out_mapped_vlog)) and \
+                    (not out_mapped_json or cache.restore(fdir, "mapped.json", out_mapped_json)):
+                return dict(res)
         dsp_flag = "-nodsp" if self.nodsp else ""
         out_vlog_cmd = f"write_verilog -noattr {out_mapped_vlog};" if out_mapped_vlog else ""
         if out_mapped_json:
@@ -173,7 +182,7 @@ class FpgaEstimator:
         dyn_pwr_mw = round(total_luts * 0.25 + carry4_count * 0.15 + ff_count * 0.08 + dsp_count * 4.5 + bram_count * 8.0, 2)
         total_pwr_mw = round(static_pwr_mw + dyn_pwr_mw, 2)
 
-        return {
+        result = {
             "top_module": top_module,
             "family": self.family,
             "device": self.device,
@@ -201,6 +210,13 @@ class FpgaEstimator:
             "cells_by_type": cells_by_type,
             "synth_time_sec": round(elapsed, 2),
         }
+        cfiles = {}
+        if out_mapped_vlog:
+            cfiles["mapped.v"] = out_mapped_vlog
+        if out_mapped_json:
+            cfiles["mapped.json"] = out_mapped_json
+        cache.save("synth", ckey, result, cfiles)
+        return dict(result)
 
     def compare_exact_vs_approx(
         self,

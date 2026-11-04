@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from axfpga import cache
 from axfpga.config import yosys_cmd
 
 from axfpga.cone_interface import parse_cone_interface
@@ -216,6 +217,13 @@ class Tournament:
         ``out_path`` gives each concurrent caller its own output file.
         """
         remap_out = Path(out_path) if out_path else self.work_dir / "remapped_approx_cone.v"
+        ckey = cache.make_key("remap", [netlist], family=self.estimator.family)
+        hit = cache.load("remap", ckey)
+        if hit is not None:
+            if hit[0] == "ok" and cache.restore(hit[1], "remap.v", remap_out):
+                return remap_out
+            if hit[0] == "unchanged":
+                return Path(netlist)
         remap_cmd = (
             f"read_verilog -sv {netlist}; "
             f"hierarchy -check -auto-top; "
@@ -226,7 +234,12 @@ class Tournament:
             f"write_verilog -noattr {remap_out}"
         )
         res = subprocess.run(yosys_cmd() + ["-q", "-p", remap_cmd], capture_output=True, text=True)
-        return remap_out if (res.returncode == 0 and remap_out.exists()) else Path(netlist)
+        if res.returncode == 0 and remap_out.exists():
+            cache.save("remap", ckey, "ok", {"remap.v": remap_out})
+            return remap_out
+        if res.returncode != 0:
+            cache.save("remap", ckey, "unchanged")
+        return Path(netlist)
 
     def _prepare_stimulus_dataset(self, iface: Dict[str, Any], run_dir: Path, trace_hex: Optional[str | Path] = None) -> Path:
         """Prepare stimulus vectors hex file for dual-miter simulation."""
@@ -258,6 +271,25 @@ class Tournament:
         return stim_hex
 
     def _simulate_candidate(
+        self,
+        exact_vlog: Path,
+        approx_vlog: Path,
+        iface: Dict[str, Any],
+        stim_hex: Path,
+        metric: str,
+        run_dir: Path,
+    ) -> Dict[str, float]:
+        """Run cycle-accurate dual miter testbench via iverilog and compute error (cached by content)."""
+        ckey = cache.make_key("tsim", [exact_vlog, approx_vlog, stim_hex], iface=iface, metric=metric)
+        hit = cache.load("tsim", ckey)
+        if hit is not None:
+            return dict(hit[0])
+        res = self._simulate_candidate_uncached(exact_vlog, approx_vlog, iface, stim_hex, metric, run_dir)
+        if res.get("med") != 1e9:                 # compile / run failures are not cached
+            cache.save("tsim", ckey, dict(res))
+        return res
+
+    def _simulate_candidate_uncached(
         self,
         exact_vlog: Path,
         approx_vlog: Path,
