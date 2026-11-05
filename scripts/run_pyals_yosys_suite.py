@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""AxBench evaluation of AxFPGA on the Zybo Z7-10 (xc7z010clg400-1), Yosys only.
+"""Benchmark-suite evaluation of AxFPGA on the Zybo Z7-10 (xc7z010clg400-1), Yosys only.
+
+Designs (--group): the 13 AxBench designs ("axbench") and the Phase-4 set ("phase4": the behavioural-multiplier
+variants of the AxBench multiplier designs and four larger designs written for this repository, benchmarks/*/).
+Designs larger than the xc7z010 are evaluated on the xc7z020 and labelled with its part.
 
 Per benchmark:
-1. Yosys synth_xilinx of the exact design (DSP inference allowed).
+1. Yosys synth_xilinx of the exact design (DSP inference on, or off with --dsp off; --dsp both runs the suite twice).
 2. (* axc_relax *)/(* axc_precise *) annotation and safe Cone extraction.
 3. pyALS Candidate Tournament on the Cone; reintegration into the top.
 4. Yosys synth_xilinx of the approximate design.
@@ -12,7 +16,9 @@ Per benchmark:
    exact vs approximate RTL; the same attributes give the format and every constraint. Held-out stream reported.
 7. Activity-based dynamic power (axfpga/activity_power.py) of both mapped netlists.
 
-Outputs (in --out-dir, default reports/): results.json, results.csv, report.md.
+Outputs (in --out-dir, default reports/): results.json, results.csv, report.md. With --dsp both: the same in
+<out-dir>/dsp_on and <out-dir>/dsp_off (build directories <build-dir>/dsp_on and <build-dir>/dsp_off), plus
+<out-dir>/dsp_comparison.md and dsp_comparison.csv.
 """
 
 from __future__ import annotations
@@ -51,6 +57,13 @@ logger = logging.getLogger("pyals_yosys_suite")
 AXBENCH_ROOT = axbench_root() / "circuits"          # AXFPGA_AXBENCH_ROOT overrides (see axfpga/config.py)
 AXFPGA_ROOT = Path(__file__).resolve().parent.parent
 AXBENCH_PLUGIN_DIR = AXFPGA_ROOT / "benchmarks" / "axbench"   # plugins and annotations.py (attributes of every design)
+BENCH_DIR = AXFPGA_ROOT / "benchmarks"
+# Phase 4: behavioural ('*') drop-ins for the AxBench array multipliers (same module name, ports and timing).
+BEHAVIOURAL_MULT = {
+    "Multiplier_15_0_1000.v": BENCH_DIR / "behavioural" / "Multiplier_15_0_1000_bhv.v",
+    "Multiplier_31_0_3000.v": BENCH_DIR / "behavioural" / "Multiplier_31_0_3000_bhv.v",
+}
+GROUPS = ("axbench", "phase4")
 BUILD_DIR = AXFPGA_ROOT / "build" / "pyals_yosys_run"
 REPORTS_DIR = AXFPGA_ROOT / "reports"
 INNER_JOBS = 3                 # concurrent candidate evaluations inside one benchmark (--inner-jobs)
@@ -58,8 +71,14 @@ INNER_JOBS = 3                 # concurrent candidate evaluations inside one ben
 # Scheduling hints for --jobs > 1. Relative run time orders the queue (longest first);
 # EST_GB is the peak resident memory of one concurrent synthesis (tune from build/*/stats.json);
 # BASE_GB is the benchmark process itself (python + pyosys + numpy).
-EST_COST = {"sobel_npu": 100, "kinematics_inv": 60, "neural_network": 40, "multiplier_32b": 25, "kinematics_fwd": 15}
-EST_GB = {"sobel_npu": 10.0, "kinematics_inv": 3.5, "multiplier_32b": 1.0, "kinematics_fwd": 2.0, "neural_network": 1.0}  # sobel_npu: 6.7 GB yosys, 9.3 GB iverilog miter
+EST_COST = {"sobel_npu": 100, "kinematics_inv": 60, "neural_network": 40, "multiplier_32b": 25, "kinematics_fwd": 15,
+            # Phase 4 designs: first estimates, not yet measured (tune from build/*/stats.json after the first run)
+            "sobel_npu_bhv": 80, "kinematics_inv_bhv": 40, "fft64_psd": 30, "image_pipeline": 20, "conv2d_3x3": 20,
+            "neural_network_bhv": 20, "kinematics_fwd_bhv": 10, "multiplier_32b_bhv": 10}
+EST_GB = {"sobel_npu": 10.0, "kinematics_inv": 3.5, "multiplier_32b": 1.0, "kinematics_fwd": 2.0, "neural_network": 1.0,  # sobel_npu: 6.7 GB yosys, 9.3 GB iverilog miter
+          # Phase 4 designs: first estimates, not yet measured
+          "sobel_npu_bhv": 6.0, "kinematics_inv_bhv": 3.0, "kinematics_fwd_bhv": 2.0, "fft64_psd": 1.5,
+          "image_pipeline": 1.0, "conv2d_3x3": 1.0, "neural_network_bhv": 1.0, "multiplier_32b_bhv": 0.6}
 DEFAULT_GB = 0.4
 BASE_GB = 1.4
 RESERVE_GB = 2.0               # never plan to use the last RESERVE_GB of available memory
@@ -69,6 +88,14 @@ KILL_BELOW_GB = 1.2            # watchdog: below this much available memory the 
 
 
 def _raw_benchmark_suite() -> List[Dict[str, Any]]:
+    """The 13 AxBench designs followed by the Phase-4 designs (see _phase4_suite)."""
+    axbench = _axbench_suite()
+    for b in axbench:
+        b["group"] = "axbench"
+    return axbench + _phase4_suite(axbench)
+
+
+def _axbench_suite() -> List[Dict[str, Any]]:
     """Define the 13 axbench-verilog benchmark test specifications."""
     sobel_rtl = AXBENCH_ROOT / "sobel" / "rtl"
     kin_fwd_rtl = AXBENCH_ROOT / "kinematics.fwd" / "rtl"
@@ -274,8 +301,49 @@ def _raw_benchmark_suite() -> List[Dict[str, Any]]:
             "bound": 7.0,
             "metric": "WCE",
             "fidelity": {"name": "Processing PSNR", "threshold": ">= 30.0 dB", "pass_floor": 30.0},
+            "device": "xc7z020",      # 89 16x16 multipliers: over the xc7z010 in LUTs (DSP off) and DSP48s (DSP on)
         },
     ]
+
+
+def _behavioural_variant(b: Dict[str, Any]) -> Dict[str, Any]:
+    """The design with its AxBench array multiplier replaced by the behavioural one (id suffix _bhv)."""
+    files = [BEHAVIOURAL_MULT.get(f.name, f) for f in b["files"]]
+    if files == list(b["files"]):
+        raise ValueError(f"{b['id']} instantiates no AxBench array multiplier")
+    return dict(b, id=f"{b['id']}_bhv", name=f"{b['name']} (behavioural *)", files=files, group="phase4")
+
+
+def _phase4_suite(axbench: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Phase 4: behavioural-multiplier variants (DSP inference becomes possible) and four larger designs.
+
+    The larger designs are written for this repository (benchmarks/<design>/: RTL + plugin, no third-party code).
+    Their quality targets (annotations.py) are provisional until the first full run.
+    """
+    by_id = {b["id"]: b for b in axbench}
+    ann = _annotations_module()
+    suite = [_behavioural_variant(by_id[i]) for i in ann.BEHAVIOURAL_VARIANTS]
+    new = [
+        ("conv2d_3x3", "CNN Conv Layer 3x3x3", "Deep Learning", "conv2d", "conv2d_3x3", "act_out"),
+        ("fft64_psd", "FFT-64 Power Spectrum", "Signal Processing", "fft64", "fft64_psd", "out_pow"),
+        ("image_pipeline", "Image Edge Pipeline", "Computer Vision", "image_pipeline", "image_pipeline", "edge_out"),
+        ("iir_biquad", "IIR Biquad Low-Pass", "DSP Filtering", "iir", "iir_biquad", "y_out"),
+    ]
+    for bid, name, domain, d, top, wire in new:
+        suite.append({
+            "id": bid,
+            "name": name,
+            "domain": domain,
+            "top": top,
+            "files": [BENCH_DIR / d / f"{top}.v"],
+            "relax_wire": wire,
+            "precise_signals": ["clk", "rst", "in_valid"],
+            "bound": 0.0,                       # replaced by the wce<= constraint of annotations.py
+            "metric": "WCE",
+            "plugin_dirs": [BENCH_DIR / d],
+            "group": "phase4",
+        })
+    return suite
 
 
 
@@ -294,18 +362,23 @@ RTL_PATCHES: Dict[str, List[Tuple[str, str, str]]] = {
         ("perceptron_fixed.v", "mul_tmp[bitwidth*i+bitwidth-1 -: bitwidth],over[i]);", "mul_tmp[bitwidth*i+bitwidth-1 -: bitwidth],over[i], clk, 1'b0);"),
     ],
 }
+RTL_PATCHES["sobel_npu_bhv"] = RTL_PATCHES["sobel_npu"]     # same perceptron_fixed.v
+
+
+def _annotations_module() -> Any:
+    spec = importlib.util.spec_from_file_location("axbench_annotations", AXBENCH_PLUGIN_DIR / "annotations.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _annotations() -> Dict[str, Dict[str, Any]]:
     """benchmarks/axbench/annotations.py: format, quality constraints, plugin and seed of every design (plain data)."""
-    spec = importlib.util.spec_from_file_location("axbench_annotations", AXBENCH_PLUGIN_DIR / "annotations.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod.ANNOTATIONS
+    return _annotations_module().ANNOTATIONS
 
 
 def define_benchmark_suite() -> List[Dict[str, Any]]:
-    """The 13 AxBench benchmarks with their quality attributes applied.
+    """Every suite design (AxBench and Phase 4) with its quality attributes applied.
 
     Budgets, number format, application metric and stimulus all come from annotations.py: the pipeline sees them as
     axc_* attributes on the relaxed wire, exactly as for a user design.
@@ -315,7 +388,7 @@ def define_benchmark_suite() -> List[Dict[str, Any]]:
     for b in suite:
         b["quality_attrs"] = ann[b["id"]]
         b["bound"] = QualitySpec.parse(ann[b["id"]]["quality"], b["relax_wire"]).wce_bound
-        b["search_dirs"] = [AXBENCH_PLUGIN_DIR]
+        b["search_dirs"] = [AXBENCH_PLUGIN_DIR, *b.pop("plugin_dirs", [])]
         b["patches"] = RTL_PATCHES.get(b["id"], [])
     return suite
 
@@ -387,7 +460,7 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     for k in res_keys:
         headers += [f"exact_{k}", f"approx_{k}", f"saved_{k}_pct"]
     headers += ["certification", "wce", "med", "mred_pct", "er", "formal_control", "formal_wce", "app_metric", "app_value", "app_unit", "app_threshold", "app_pass",
-                "heldout_wce", "heldout_med", "heldout_app_value", "heldout_ok"]
+                "heldout_wce", "heldout_med", "heldout_app_value", "heldout_ok", "device", "dsp_inference"]
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
         w.writerow(headers)
@@ -400,6 +473,7 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
                     a["name"], _fmt(a["value"], 4), a["unit"], a["threshold"], a["pass"]]
             h = r.get("heldout")
             row += [h["errors"]["wce"], h["errors"]["med"], _fmt(h["app"]["value"], 4), h["within_limits"]] if h else ["", "", "", ""]
+            row += [r["device"], r.get("dsp_inference", "")]
             w.writerow(row)
 
     # Only certified results (every applicable proof PROVEN) feed the headline tables; the rest are listed below them.
@@ -407,12 +481,17 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     results = [r for r in all_results if result_tier(r) is Certification.CERTIFIED]
     uncertified = [r for r in all_results if result_tier(r) is not Certification.CERTIFIED]
     pm = all_results[0]["power_model"] if all_results else {}
+    dsp_on = all(r.get("dsp_inference", True) for r in all_results)
+    dsp_text = "DSP inference allowed" if dsp_on else "DSP inference off: `-nodsp`"
+    big = [r["name"] for r in all_results if r["device"] != FPGA_PART]
     md: List[str] = [
         "# AxFPGA AxBench Evaluation: Zybo Z7-10 (xc7z010clg400-1)",
         "",
-        "Synthesis: Yosys `synth_xilinx -family xc7 -flatten -noiopad` (DSP inference allowed). "
+        f"Synthesis: Yosys `synth_xilinx -family xc7 -flatten -noiopad{'' if dsp_on else ' -nodsp'}` ({dsp_text}). "
         "Approximation: pyALS Candidate Tournament. LC = LUT + 2 x CARRY4. "
-        "Utilization % is relative to the xc7z010 (17,600 LUT, 35,200 FF, 80 DSP48E1, 60 BRAM36).",
+        "Utilization % is relative to the xc7z010 (17,600 LUT, 35,200 FF, 80 DSP48E1, 60 BRAM36)"
+        + (f"; designs marked [xc7z020] are larger than the xc7z010 and relative to the xc7z020 "
+           f"(53,200 LUT, 106,400 FF, 220 DSP48E1, 140 BRAM36): {', '.join(big)}." if big else "."),
         "",
     ]
     excluded = [b for b in define_benchmark_suite() if b["id"] in EXCLUDED and b["id"] not in {r["id"] for r in all_results}]
@@ -427,7 +506,8 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     for r in results:
         e, a, s = r["exact"], r["approx"], r["savings_pct"]
         cell = lambda k: f"{e[k]} → {a[k]}"
-        md.append(f"| **{r['name']}** | `{r['method']}` | {cell('luts')} | {cell('ffs')} | {cell('dsps')} | {cell('brams')} | {cell('carry4')} | {cell('logic_cells')} | **{s['logic_cells']:.1f}%** |")
+        label = r["name"] + (" [xc7z020]" if r["device"] != FPGA_PART else "")
+        md.append(f"| **{label}** | `{r['method']}` | {cell('luts')} | {cell('ffs')} | {cell('dsps')} | {cell('brams')} | {cell('carry4')} | {cell('logic_cells')} | **{s['logic_cells']:.1f}%** |")
     md += ["", "Device utilization % (baseline → approximate):", "",
            "| Benchmark | LUT % | FF % | DSP % | BRAM % |", "|:--|--:|--:|--:|--:|"]
     for r in results:
@@ -503,6 +583,62 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     logger.info("Wrote %s, %s, %s", json_path, csv_path, md_path)
 
 
+def export_dsp_comparison(on: List[Dict[str, Any]], off: List[Dict[str, Any]], out_dir: Path) -> List[str]:
+    """dsp_comparison.md / .csv: every design with DSP inference on and off, side by side (Phase 4).
+
+    Returns the gate failures: designs missing in one of the runs, and behavioural-multiplier variants (id ending in
+    _bhv) whose exact design infers no DSP48E1 with DSP inference on.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    on_by, off_by = {r["id"]: r for r in on}, {r["id"]: r for r in off}
+    order = [b["id"] for b in define_benchmark_suite()]
+    ids = sorted(set(on_by) | set(off_by), key=lambda i: order.index(i) if i in order else 99)
+    failures: List[str] = []
+    rows: List[List[Any]] = []
+    md = ["# DSP inference on vs off", "",
+          "Same designs, same flow; only `synth_xilinx -nodsp` differs. LC = LUT + 2 x CARRY4. "
+          "DSP = DSP48E1 count. Cells: exact -> approximate.", "",
+          "| Benchmark | DSP (on) | LUT (on) | LC (on) | LC saved (on) | Tier (on) | LUT (off) | LC (off) | LC saved (off) | Tier (off) |",
+          "|:--|--:|--:|--:|--:|:--|--:|--:|--:|:--|"]
+
+    def part(r: Optional[Dict[str, Any]]) -> Tuple[List[Any], List[str]]:
+        if r is None:
+            return [None] * 7, ["missing"] * 4
+        e, a, s = r["exact"], r["approx"], r["savings_pct"]
+        vals = [e["dsps"], a["dsps"], e["luts"], a["luts"], e["logic_cells"], a["logic_cells"], s["logic_cells"]]
+        cells = [f"{e['luts']} -> {a['luts']}", f"{e['logic_cells']} -> {a['logic_cells']}", f"{s['logic_cells']:.1f}%",
+                 result_tier(r).value]
+        return vals, cells
+
+    for i in ids:
+        r_on, r_off = on_by.get(i), off_by.get(i)
+        name = (r_on or r_off)["name"]
+        v_on, c_on = part(r_on)
+        v_off, c_off = part(r_off)
+        dsp_cell = "missing" if r_on is None else f"{v_on[0]} -> {v_on[1]}"
+        md.append(f"| {name} | {dsp_cell} | {' | '.join(c_on)} | {' | '.join(c_off[:3])} | {c_off[3]} |")
+        rows.append([i, name, *v_on, *v_off[2:]])
+        if r_on is None or r_off is None:
+            failures.append(f"{i}: no result with DSP inference {'on' if r_on is None else 'off'}")
+        elif i.endswith("_bhv") and r_on["exact"]["dsps"] == 0:
+            failures.append(f"{i}: behavioural variant infers no DSP48E1 with DSP inference on")
+        if r_off is not None and r_off["exact"]["dsps"] != 0:
+            failures.append(f"{i}: {r_off['exact']['dsps']} DSP48E1 with DSP inference off")
+    md += ["", "## Gate checks", ""]
+    md += [f"- FAIL: {f}" for f in failures] or ["- PASS: every design has both runs; every `_bhv` variant infers "
+                                                 "DSP48E1 blocks with DSP inference on; no design uses DSP48E1 with "
+                                                 "DSP inference off."]
+    (out_dir / "dsp_comparison.md").write_text("\n".join(md) + "\n")
+    with open(out_dir / "dsp_comparison.csv", "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["id", "name", "on_exact_dsps", "on_approx_dsps", "on_exact_luts", "on_approx_luts", "on_exact_lc",
+                    "on_approx_lc", "on_lc_saved_pct", "off_exact_luts", "off_approx_luts", "off_exact_lc",
+                    "off_approx_lc", "off_lc_saved_pct"])
+        w.writerows(rows)
+    logger.info("Wrote %s (%d gate failure(s))", out_dir / "dsp_comparison.md", len(failures))
+    return failures
+
+
 def _mem_available_gb() -> float:
     try:
         for line in Path("/proc/meminfo").read_text().splitlines():
@@ -541,7 +677,8 @@ def _benchmark_process(bench_id: str, build_dir: str, nodsp: bool, cone_variants
     bench = next(b for b in define_benchmark_suite() if b["id"] == bench_id)
     t0 = time.time()
     cache.reset_stats()
-    result = run_benchmark(bench, FpgaEstimator(family="xc7", device=FPGA_DEVICE, nodsp=nodsp), inner_jobs)
+    result = run_benchmark(bench, FpgaEstimator(family="xc7", device=bench.get("device", FPGA_DEVICE), nodsp=nodsp),
+                           inner_jobs)
     logger.info("%s", cache.summary())
     stats = {"id": bench_id, "wall_s": round(time.time() - t0, 1), "inner_jobs": inner_jobs, "cache": cache.stats(),
              "peak_child_rss_mb": round(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024, 1),
@@ -616,13 +753,38 @@ def run_suite(suite: List[Dict[str, Any]], out_dir: Path, jobs: int, inner_jobs:
     return failed
 
 
+def _dsp_runs(mode: str, out_dir: Path, build_dir: Path) -> List[Tuple[bool, Path, Path]]:
+    """(nodsp, out dir, build dir) per suite run: one run for --dsp on/off, two subdirectories for --dsp both."""
+    if mode == "both":
+        return [(False, out_dir / "dsp_on", build_dir / "dsp_on"), (True, out_dir / "dsp_off", build_dir / "dsp_off")]
+    return [(mode == "off", out_dir, build_dir)]
+
+
+def select_suite(benchmarks: Optional[List[str]], group: str) -> List[Dict[str, Any]]:
+    """Designs of one run: the -b ids (or tops) if given, else the group without the EXCLUDED designs."""
+    suite = define_benchmark_suite()
+    if benchmarks:
+        return [b for b in suite if b["id"] in benchmarks or b["top"] in benchmarks]
+    if group != "all":
+        suite = [b for b in suite if b["group"] == group]
+    for b in suite:
+        if b["id"] in EXCLUDED:
+            logger.warning("Skipping %s: %s (run it with -b %s)", b["id"], EXCLUDED[b["id"]], b["id"])
+    return [b for b in suite if b["id"] not in EXCLUDED]
+
+
 def main():
     global BUILD_DIR, CONE_VARIANTS
-    parser = argparse.ArgumentParser(description="AxBench evaluation of AxFPGA on Zybo Z7-10 (Yosys only)")
+    parser = argparse.ArgumentParser(description="Benchmark-suite evaluation of AxFPGA on Zybo Z7-10 (Yosys only)")
     parser.add_argument("--benchmark", "-b", action="append", default=None, help="Benchmark id (repeatable); default all")
+    parser.add_argument("--group", choices=("all", *GROUPS), default="all",
+                        help="Designs run when no -b is given: the AxBench designs, the Phase-4 designs, or all (default)")
     parser.add_argument("--out-dir", "-o", default=str(REPORTS_DIR), help="Directory for results.json/csv and report.md")
     parser.add_argument("--build-dir", default=str(BUILD_DIR), help="Working directory for per-benchmark artifacts")
-    parser.add_argument("--nodsp", action="store_true", help="Disable DSP48E1 inference")
+    parser.add_argument("--dsp", choices=("on", "off", "both"), default="on",
+                        help="DSP48E1 inference: on (default), off (-nodsp), or both (two runs in dsp_on/ and dsp_off/ "
+                             "subdirectories of --out-dir and --build-dir, plus dsp_comparison.md)")
+    parser.add_argument("--nodsp", action="store_true", help="Alias for --dsp off")
     parser.add_argument("--cone-variants", default=",".join(CONE_VARIANTS),
                         help="Comma-separated reintegration variants tried per candidate, in order: raw, remapped")
     parser.add_argument("--jobs", "-j", type=int, default=1,
@@ -637,52 +799,65 @@ def main():
     args = parser.parse_args()
 
     out_dir = Path(args.out_dir).resolve()
-    BUILD_DIR = Path(args.build_dir).resolve()
+    build_root = Path(args.build_dir).resolve()
     CONE_VARIANTS = tuple(v.strip() for v in args.cone_variants.split(",") if v.strip() in ("raw", "remapped")) or ("remapped",)
-    BUILD_DIR.mkdir(parents=True, exist_ok=True)
     budget_gb = args.mem_gb if args.mem_gb else _mem_total_gb() * 0.7
+    dsp_mode = "off" if args.nodsp else args.dsp
+    runs = _dsp_runs(dsp_mode, out_dir, build_root)
 
     if args.no_cache:
         cache.disable()                 # inherited by the benchmark processes
     if args.merge:
-        merged = merge_results(BUILD_DIR, out_dir)
-        logger.info("Merged %d result(s) from %s into %s", len(merged), BUILD_DIR, out_dir)
+        merged_by_mode = []
+        for _, run_out, run_build in runs:
+            merged = merge_results(run_build, run_out)
+            merged_by_mode.append(merged)
+            logger.info("Merged %d result(s) from %s into %s", len(merged), run_build, run_out)
+        if dsp_mode == "both":
+            export_dsp_comparison(merged_by_mode[0], merged_by_mode[1], out_dir)
         return
-    suite = define_benchmark_suite()
-    if args.benchmark:
-        suite = [b for b in suite if b["id"] in args.benchmark or b["top"] in args.benchmark]
-        if not suite:
-            logger.error("No benchmark matches %s", args.benchmark)
-            sys.exit(2)
-    else:
-        for b in suite:
-            if b["id"] in EXCLUDED:
-                logger.warning("Skipping %s: %s (run it with -b %s)", b["id"], EXCLUDED[b["id"]], b["id"])
-        suite = [b for b in suite if b["id"] not in EXCLUDED]
+    suite = select_suite(args.benchmark, args.group)
+    if not suite:
+        logger.error("No benchmark matches %s", args.benchmark)
+        sys.exit(2)
 
-    t0 = time.time()
-    failed: List[str] = []
-    # Every benchmark runs in its own process, also with --jobs 1: libyosys keeps global state (name counters), so
-    # benchmarks sharing a process would give results that depend on the run order and on --jobs.
-    failed = run_suite(suite, out_dir, max(1, args.jobs), max(1, args.inner_jobs), budget_gb, args.nodsp)
-    ids = {b["id"] for b in suite} - set(failed)
-    results = [json.loads((BUILD_DIR / i / "result.json").read_text()) for i in sorted(ids) if (BUILD_DIR / i / "result.json").exists()]
-    if results:
-        export_results(results, out_dir)
-    wall = time.time() - t0
-    hits = misses = 0
-    for i in ids:
-        sp = BUILD_DIR / i / "stats.json"
-        if sp.exists():
-            for v in json.loads(sp.read_text()).get("cache", {}).values():
-                hits += v["hits"]
-                misses += v["misses"]
-    (out_dir / "run_stats.json").write_text(json.dumps({
-        "wall_s": round(wall, 1), "jobs": args.jobs, "inner_jobs": args.inner_jobs, "benchmarks": sorted(ids),
-        "peak_rss_gb": getattr(run_suite, "peak_rss_gb", None), "cache_enabled": cache.enabled(),
-        "cache_hits": hits, "cache_misses": misses}, indent=2))
-    logger.info("Done in %.1f s. Failed: %s. Cache: %d hit / %d miss", wall, failed or "none", hits, misses)
-    sys.exit(1 if failed else 0)
+    t_all = time.time()
+    failed_any: List[str] = []
+    results_by_mode: List[List[Dict[str, Any]]] = []
+    for nodsp, run_out, run_build in runs:
+        BUILD_DIR = run_build
+        BUILD_DIR.mkdir(parents=True, exist_ok=True)
+        t0 = time.time()
+        logger.info("Suite run: %d design(s), DSP inference %s, build %s", len(suite), "off" if nodsp else "on", BUILD_DIR)
+        # Every benchmark runs in its own process, also with --jobs 1: libyosys keeps global state (name counters), so
+        # benchmarks sharing a process would give results that depend on the run order and on --jobs.
+        failed = run_suite(suite, run_out, max(1, args.jobs), max(1, args.inner_jobs), budget_gb, nodsp)
+        failed_any += [f"{i} (dsp {'off' if nodsp else 'on'})" for i in failed]
+        ids = {b["id"] for b in suite} - set(failed)
+        results = [json.loads((BUILD_DIR / i / "result.json").read_text()) for i in sorted(ids) if (BUILD_DIR / i / "result.json").exists()]
+        results_by_mode.append(results)
+        if results:
+            export_results(results, run_out)
+        wall = time.time() - t0
+        hits = misses = 0
+        for i in ids:
+            sp = BUILD_DIR / i / "stats.json"
+            if sp.exists():
+                for v in json.loads(sp.read_text()).get("cache", {}).values():
+                    hits += v["hits"]
+                    misses += v["misses"]
+        run_out.mkdir(parents=True, exist_ok=True)
+        (run_out / "run_stats.json").write_text(json.dumps({
+            "wall_s": round(wall, 1), "jobs": args.jobs, "inner_jobs": args.inner_jobs, "benchmarks": sorted(ids),
+            "dsp_inference": not nodsp,
+            "peak_rss_gb": getattr(run_suite, "peak_rss_gb", None), "cache_enabled": cache.enabled(),
+            "cache_hits": hits, "cache_misses": misses}, indent=2))
+        logger.info("Done in %.1f s (DSP inference %s). Failed: %s. Cache: %d hit / %d miss",
+                    wall, "off" if nodsp else "on", failed or "none", hits, misses)
+    if dsp_mode == "both":
+        export_dsp_comparison(results_by_mode[0], results_by_mode[1], out_dir)
+        logger.info("Both DSP runs done in %.1f s", time.time() - t_all)
+    sys.exit(1 if failed_any else 0)
 
 
 if __name__ == "__main__":

@@ -112,6 +112,7 @@
         "domain": { "type": "string" },
         "top": { "type": "string" },
         "device": { "type": "string" },
+        "dsp_inference": { "type": "boolean", "description": "false when synthesized with -nodsp (Phase 4; absent in earlier results)" },
         "engine": { "type": "string" },
         "method": { "type": "string", "description": "Chosen approximation, or \"exact (fallback)\"." },
         "fell_back": { "type": "boolean" },

@@ -59,6 +59,8 @@ logger = logging.getLogger("axfpga.pipeline")
 
 FPGA_PART = "xc7z010clg400-1"
 FPGA_DEVICE = "xc7z010"
+# Parts by device: designs larger than the xc7z010 are evaluated on the xc7z020 and labelled with its part.
+FPGA_PARTS = {"xc7z010": FPGA_PART, "xc7z020": "xc7z020clg400-1"}
 F_CLK_MHZ = 125.0
 FORMAL_TIMEOUT_S = 120
 SIM_TIMEOUT_S = 3600           # miter compile/run timeout (large designs, e.g. sobel_npu at 42k LUTs)
@@ -381,8 +383,9 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     bench["files"] = list(spec.files)
     bench_id = spec.id
     top_mod = spec.top
+    part = FPGA_PARTS.get(getattr(estimator, "device", FPGA_DEVICE), FPGA_PART)
     logger.info("=" * 80)
-    logger.info("Design: %s (%s) on %s | inner jobs: %d", spec.name, bench_id, FPGA_PART, inner_jobs)
+    logger.info("Design: %s (%s) on %s | inner jobs: %d", spec.name, bench_id, part, inner_jobs)
     logger.info("=" * 80)
 
     bench_work = Path(work_dir)
@@ -766,7 +769,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         "name": bench["name"],
         "domain": bench["domain"],
         "top": top_mod,
-        "device": FPGA_PART,
+        "device": part,
+        "dsp_inference": not getattr(estimator, "nodsp", False),
         "engine": "pyALS Candidate Tournament",
         "method": method,
         "fell_back": fell_back,

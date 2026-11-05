@@ -98,7 +98,9 @@ class FpgaEstimator:
             res, fdir = hit
             if (not out_mapped_vlog or cache.restore(fdir, "mapped.v", out_mapped_vlog)) and \
                     (not out_mapped_json or cache.restore(fdir, "mapped.json", out_mapped_json)):
-                return dict(res)
+                # The cache key has no device (synthesis does not depend on it): the device fields of a hit
+                # may come from another estimator, so they are recomputed for this one.
+                return self._device_fields(dict(res))
         dsp_flag = "-nodsp" if self.nodsp else ""
         out_vlog_cmd = f"write_verilog -noattr {out_mapped_vlog};" if out_mapped_vlog else ""
         if out_mapped_json:
@@ -217,6 +219,18 @@ class FpgaEstimator:
             cfiles["mapped.json"] = out_mapped_json
         cache.save("synth", ckey, result, cfiles)
         return dict(result)
+
+    def _device_fields(self, res: Dict[str, Any]) -> Dict[str, Any]:
+        """Set the device name, capacity and utilization percentages of a synthesis result for self.device
+        (same formulas as evaluate_netlist)."""
+        cap = self.device_capacity
+        res["device"] = self.device
+        res["device_capacity"] = cap
+        res["lut_utilization_pct"] = round((res["total_luts"] / cap["luts"]) * 100.0, 3) if cap["luts"] else 0.0
+        res["ff_utilization_pct"] = round((res["ffs"] / cap["ffs"]) * 100.0, 3) if cap["ffs"] else 0.0
+        res["dsp_utilization_pct"] = round((res["dsps"] / cap["dsps"]) * 100.0, 3)
+        res["bram_utilization_pct"] = round(((res["ramb36"] + 0.5 * res["ramb18"]) / cap["bram36"]) * 100.0, 3)
+        return res
 
     def compare_exact_vs_approx(
         self,
