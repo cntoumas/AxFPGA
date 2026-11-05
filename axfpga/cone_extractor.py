@@ -26,6 +26,14 @@ def decode_attr(attr_val: Any, default: Any = None) -> Any:
     """Decode a Yosys RTLIL Const attribute into a Python primitive."""
     if attr_val is None:
         return default
+    flags = getattr(attr_val, "flags", None)
+    if isinstance(flags, int) and not flags & 1 and hasattr(attr_val, "as_int"):
+        # A numeric constant (CONST_FLAG_STRING unset). Without this check, a number whose bytes happen to be
+        # printable (axc_bound=32 -> ' ', 16384 -> '@') was decoded as a string.
+        try:
+            return attr_val.as_int()
+        except Exception:
+            pass
     try:
         s = attr_val.decode_string()
         if s and all(c.isprintable() for c in s):

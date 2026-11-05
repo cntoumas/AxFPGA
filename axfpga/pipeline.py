@@ -49,7 +49,7 @@ from axfpga.parallel import Cancelled, depth_search, first_accepted, yosys_seria
 from axfpga.ppg_pruner import PpgPruner
 from axfpga.ports import resolve_clock_reset
 from axfpga.pyals_bridge import PyAlsBridge
-from axfpga.quality import QualitySpec, make_evaluator
+from axfpga.quality import QualitySpec, make_evaluator, power_cap
 from axfpga.quality.attrs import WireQuality
 from axfpga.reintegrator import Reintegrator
 from axfpga.tournament import Tournament
@@ -62,6 +62,9 @@ FPGA_DEVICE = "xc7z010"
 # Parts by device: designs larger than the xc7z010 are evaluated on the xc7z020 and labelled with its part.
 FPGA_PARTS = {"xc7z010": FPGA_PART, "xc7z020": "xc7z020clg400-1"}
 F_CLK_MHZ = 125.0
+# Cycles of the activity-power simulation (evenly spaced from the power stimulus). Kept short since Phase 4: the
+# gate-level VCD simulation of large designs took tens of minutes, and Vivado SAIF power (Phase 9) is the reference.
+POWER_CYCLES = 256
 FORMAL_TIMEOUT_S = 120
 SIM_TIMEOUT_S = 3600           # miter compile/run timeout (large designs, e.g. sobel_npu at 42k LUTs)
 MAX_ATTEMPTS = 8               # candidates tried per design before keeping the exact design
@@ -374,7 +377,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     ``work_dir`` is the design's private directory (deleted and recreated). ``evaluator`` supplies the application
     stimulus and metrics (see the module docstring). ``inner_jobs`` > 1 evaluates candidates concurrently
     (subprocess steps in parallel, in-process pyosys steps serialized); the result is identical to 1.
-    ``tournament_estimator`` costs the cone candidates (default: xc7z010, DSPs allowed, as in the Phase-0 anchor).
+    ``tournament_estimator`` costs the cone candidates (default: xc7z010 with the DSP setting of ``estimator``; until
+    Phase 4 it always allowed DSPs, which made every cone with a multiplier look almost free in a -nodsp run).
     """
     if not isinstance(spec, DesignSpec):
         spec = DesignSpec.from_dict(spec)
@@ -646,7 +650,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         logger.info("[Stage 3b] pyALS Candidate Tournament on the safe cone...")
         pyals_dir = bench_work / "pyals_run"
         bridge = PyAlsBridge(cone_verilog_path=cone_v, meta_json_path=cone_meta, work_dir=pyals_dir, cut_size=4)
-        tournament = Tournament(estimator=tournament_estimator or FpgaEstimator(family="xc7", device=FPGA_DEVICE, nodsp=False),
+        tournament = Tournament(estimator=tournament_estimator or FpgaEstimator(
+                                    family="xc7", device=FPGA_DEVICE, nodsp=getattr(estimator, "nodsp", False)),
                                 work_dir=pyals_dir, sim_samples=64)
         champion = tournament.run(cone_vlog=cone_v, meta_json=cone_meta, metric=bench["metric"],
                                   bound=bench["bound"], generators=[bridge])
@@ -746,7 +751,7 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
 
     # Stage 8: activity-based power of mapped netlists
     logger.info("[Stage 8] Activity-based dynamic power @ %.0f MHz...", F_CLK_MHZ)
-    pvecs = evaluator.power_vectors(bench_id, vectors)
+    pvecs = power_cap(evaluator.power_vectors(bench_id, vectors), POWER_CYCLES)
     pwr_dir = bench_work / "power"
     pk = dict(sim_kw, work_dir=pwr_dir, vcd=True)
 

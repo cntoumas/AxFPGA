@@ -300,3 +300,18 @@ def test_estimator_device_fields_follow_the_estimator():
     assert small["lut_utilization_pct"] == 100.0 and small["dsp_utilization_pct"] == 10.0
     assert big["device"] == "xc7z020" and big["lut_utilization_pct"] == round(17600 / 53200 * 100, 3)
     assert big["dsp_utilization_pct"] == round(8 / 220 * 100, 3)
+
+
+def test_decode_attr_keeps_numbers_whose_bytes_are_printable(tmp_path):
+    """axc_bound=32 (' ') and 16384 ('@') are numbers; strings stay strings (fft64_psd / iir_biquad first run)."""
+    from pyosys import libyosys as ys
+
+    from axfpga.cone_extractor import decode_attr
+    f = tmp_path / "t.v"
+    f.write_text('module t((* axc_bound=32, axc_h=16384, axc_q=3, axc_f="u32", axc_p="1" *) output [3:0] y);\n'
+                 "assign y = 0; endmodule\n")
+    d = ys.Design()
+    ys.run_pass(f"read_verilog {f}", d)
+    w = next(iter(d.top_module().wires_.values()))
+    got = {k.str().lstrip("\\"): decode_attr(v) for k, v in w.attributes.items() if k.str().startswith("\\axc_")}
+    assert got == {"axc_bound": 32, "axc_h": 16384, "axc_q": 3, "axc_f": "u32", "axc_p": "1"}
