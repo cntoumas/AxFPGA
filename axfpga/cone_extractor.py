@@ -79,6 +79,7 @@ class ConeExtractor:
         verilog_path: str | Path | List[str | Path],
         top_module: Optional[str] = None,
         decompose_operators: bool = False,
+        through_registers: bool = False,
     ):
         if isinstance(verilog_path, (list, tuple)):
             self.verilog_paths = [Path(p).resolve() for p in verilog_path]
@@ -88,6 +89,7 @@ class ConeExtractor:
             self.verilog_paths = [self.verilog_path]
         self.top_module_name = top_module
         self.decompose_operators = decompose_operators
+        self.through_registers = through_registers      # also report the arithmetic behind internal registers (see below)
         self.design = ys.Design()
 
     def elaborate(self) -> ys.Module:
@@ -328,6 +330,8 @@ class ConeExtractor:
 
             changed = (len(relax_seeds) > old_len)
 
+        precise_annotated = set(precise_seeds)           # before 4c: used by the through-registers analysis
+
         # 4c. Collect precise seeds from unrelaxed sequential cell inputs and control pins
         for cname in seq_cells:
             cell = top.cell(ys.IdString(cname))
@@ -404,6 +408,10 @@ class ConeExtractor:
                 "safe_cells": [],
                 "relaxed_signals": relaxed_signals_meta,
             }
+
+        through = None
+        if self.through_registers:
+            through = self._through_registers(top, dsu, bit_drivers, cell_inputs, seq_cells, relax_seeds, precise_annotated, c_safe)
 
         # Count cell types
         cell_types = Counter()
@@ -554,6 +562,33 @@ class ConeExtractor:
                 "feedback_registers": fb["feedback_registers"],
             })
 
+        # Which output port of each cone carries a relaxed wire (aliases resolved): the verifier needs this when the port
+        # keeps the hierarchical name of the driver (``x_adder.c``) and not the name of the relaxed wire (``x``).
+        top_wires = {w_id.str(): w for w_id, w in top.wires_.items()}
+        for sig_meta in relaxed_signals_meta:
+            rw = top_wires.get("\\" + sig_meta["wire"])
+            if rw is None:
+                continue
+            want = {dsu.find((rw.name.str(), i)) for i in range(rw.width)}
+            # A registered relaxed wire is the Q of flip-flops: the cone's output port is their D net.
+            q_to_d: Dict[Tuple[str, int], Tuple[str, int]] = {}
+            for cname in seq_cells:
+                fc = top.cell(ys.IdString(cname))
+                if fc is None or not (fc.hasPort(ys.IdString("\\Q")) and fc.hasPort(ys.IdString("\\D"))):
+                    continue
+                for qb, db in zip(fc.getPort(ys.IdString("\\Q")).bits(), fc.getPort(ys.IdString("\\D")).bits()):
+                    if qb.wire and db.wire:
+                        q_to_d[dsu.find((qb.wire.name.str(), qb.offset))] = dsu.find((db.wire.name.str(), db.offset))
+            want = {q_to_d.get(b, b) for b in want}
+            for cm in cones_meta:
+                comp_out = set().union(*(cell_outputs.get(c, set()) for c in cm["cells"]))
+                if not want <= comp_out:
+                    continue
+                same_width = [p_ for p_ in cm["submodule_outputs"] if p_["width"] == len(want)]
+                if len(same_width) == 1:          # an ambiguous cone is left to the verifier's name matching
+                    sig_meta.setdefault("cone_output", same_width[0]["name"])
+                    break
+
         # 12. Write output files if requested
         result_files: Dict[str, str] = {}
 
@@ -601,6 +636,8 @@ class ConeExtractor:
         }
 
         meta_result.update(port_meta)
+        if through is not None:
+            meta_result["through_registers"] = through
 
         if out_meta_path:
             out_meta_p = Path(out_meta_path).resolve()
@@ -610,6 +647,123 @@ class ConeExtractor:
             result_files["metadata_json"] = str(out_meta_p)
 
         return meta_result
+
+    def _through_registers(self, top: ys.Module, dsu: DSU, bit_drivers: Dict[Tuple[str, int], str],
+                           cell_inputs: Dict[str, Set[Tuple[str, int]]], seq_cells: Set[str],
+                           relax_seeds: Set[Tuple[str, int]], precise_annotated: Set[Tuple[str, int]],
+                           c_safe: Set[str]) -> Dict[str, Any]:
+        """Relaxability behind internal registers.
+
+        The normal cone stops at the first register: the logic that computes a register's D input is relaxed only for
+        the registers that drive a relaxed output directly. Here relaxation is propagated backwards through
+        combinational logic and then through every register whose output is not needed precisely, to a fixed point:
+
+          precise closure P  starts from the annotated precise signals and the unannotated primary outputs; a register
+                             whose output feeds P is precise as a whole (its D input and control pins join P);
+          relaxed closure R  starts from the relaxed outputs; the output bits of registers reached by R and not in P
+                             become relaxed, so the logic computing their D inputs is relaxed too (their control
+                             pins join P).
+
+        The relaxed cells are R minus P, as in the single-stage case, so a cell that any precise signal depends on is
+        never relaxed. Returns the cell names, the arithmetic cells among them (by ``operators.core`` site id) and which
+        of them lie behind a register, i.e. outside the normal cone.
+        """
+        from axfpga.operators.core import _site_cells
+
+        def canon(b: ys.SigBit) -> Optional[Tuple[str, int]]:
+            return dsu.find((b.wire.name.str(), b.offset)) if b.wire else None
+
+        ff: Dict[str, Tuple[List[Optional[Tuple[str, int]]], List[Optional[Tuple[str, int]]], Set[Tuple[str, int]]]] = {}
+        q_owner: Dict[Tuple[str, int], Tuple[str, int]] = {}
+        for cname in sorted(seq_cells):
+            cell = top.cell(ys.IdString(cname))
+            if cell is None:
+                continue
+            qs: List[Optional[Tuple[str, int]]] = []
+            ds: List[Optional[Tuple[str, int]]] = []
+            ctrl: Set[Tuple[str, int]] = set()
+            for pname, sig in cell.connections().items():
+                if cell.output(pname):
+                    qs = [canon(b) for b in sig]
+                elif cell.input(pname):
+                    if pname.str().upper() in (r"\D", r"\DATA"):
+                        ds = [canon(b) for b in sig]
+                    else:
+                        ctrl |= {c for c in (canon(b) for b in sig) if c}
+            ff[cname] = (qs, ds, ctrl)
+            for i, q in enumerate(qs):
+                if q:
+                    q_owner[q] = (cname, i)
+
+        def back(seeds: Set[Tuple[str, int]]) -> Tuple[Set[str], Set[Tuple[str, int]]]:
+            """Combinational backward closure: the cells reached and the boundary bits (register outputs, inputs)."""
+            cells: Set[str] = set()
+            seen = set(seeds)
+            stack = list(seeds)
+            boundary: Set[Tuple[str, int]] = set()
+            while stack:
+                b = stack.pop()
+                c = bit_drivers.get(b)
+                if c is None:
+                    boundary.add(b)
+                    continue
+                if c not in cells:
+                    cells.add(c)
+                    for ib in cell_inputs[c]:
+                        if ib not in seen:
+                            seen.add(ib)
+                            stack.append(ib)
+            return cells, boundary
+
+        relaxed_q: Set[Tuple[str, int]] = {owner for q, owner in q_owner.items() if q in relax_seeds}   # relaxed outputs
+        r_seeds: Set[Tuple[str, int]] = set(relax_seeds)
+        for cname, i in list(relaxed_q):                  # their D inputs are relaxed too
+            d = ff[cname][1][i] if i < len(ff[cname][1]) else None
+            if d:
+                r_seeds.add(d)
+        while True:
+            # precise closure for the current relaxed registers
+            # Precision flows backwards from the precise signals only: a register is precise when its output is needed by
+            # one (below). A register needed only by relaxed logic is free to be approximate; one needed by nothing is dead.
+            p_seeds = set(precise_annotated)
+            for cname, (qs, ds, ctrl) in ff.items():
+                if any((cname, i) in relaxed_q for i in range(len(qs))):
+                    p_seeds |= ctrl                    # clock, reset and enable of a relaxed register stay exact
+            p_regs: Set[str] = set()
+            while True:
+                p_cells, p_boundary = back(p_seeds)
+                grew = False
+                for q in p_boundary:
+                    if q in q_owner and q_owner[q][0] not in p_regs:
+                        cname = q_owner[q][0]
+                        p_regs.add(cname)
+                        qs, ds, ctrl = ff[cname]
+                        p_seeds |= {d for d in ds if d} | ctrl
+                        grew = True
+                if not grew:
+                    break
+            r_cells, r_boundary = back(r_seeds)
+            changed = False
+            for q in sorted(r_boundary):
+                if q not in q_owner or q in p_boundary:
+                    continue
+                cname, i = q_owner[q]
+                if cname in p_regs or (cname, i) in relaxed_q:
+                    continue
+                relaxed_q.add((cname, i))
+                d = ff[cname][1][i] if i < len(ff[cname][1]) else None
+                if d:
+                    r_seeds.add(d)
+                changed = True
+            if not changed:
+                break
+        safe = r_cells - p_cells
+        by_name = {c.name.str(): (sid, kind) for sid, c, kind in _site_cells(top)}
+        sites = sorted(by_name[c][0] for c in safe if c in by_name)
+        base_sites = {by_name[c][0] for c in c_safe if c in by_name}
+        return {"safe_cells": sorted(safe), "num_safe_cells": len(safe), "num_registers_relaxed": len({c for c, _ in relaxed_q}),
+                "sites": sites, "sites_behind_registers": [s for s in sites if s not in base_sites],
+                "cone_sites": sorted(base_sites)}
 
     @staticmethod
     def _collect_axc_attrs(wire: ys.Wire) -> Dict[str, Any]:

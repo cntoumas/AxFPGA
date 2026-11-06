@@ -43,7 +43,7 @@ from axfpga.certification import Certification, result_tier
 from axfpga.estimator import FpgaEstimator
 from axfpga.config import axbench_root
 from axfpga import cache
-from axfpga.pipeline import (CONE_VARIANTS, F_CLK_MHZ, FPGA_DEVICE, FPGA_PART, MAX_ATTEMPTS, MAX_PPG_EVALS,  # noqa: F401
+from axfpga.pipeline import (CONE_VARIANTS, F_CLK_MHZ, FPGA_DEVICE, FPGA_PART, MAX_ATTEMPTS, MAX_ATTEMPTS_SMALL, ATTEMPT_SMALL_LCS, MAX_PPG_EVALS,  # noqa: F401
                              DesignSpec, fmt as _fmt, run_design)
 from axfpga.quality import QualitySpec
 
@@ -459,7 +459,7 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     headers = ["id", "name", "method", "fell_back", "bound"]
     for k in res_keys:
         headers += [f"exact_{k}", f"approx_{k}", f"saved_{k}_pct"]
-    headers += ["certification", "wce", "med", "mred_pct", "er", "formal_control", "formal_wce", "app_metric", "app_value", "app_unit", "app_threshold", "app_pass",
+    headers += ["certification", "wce", "wce_pct", "out_bits", "med", "mred_pct", "er", "formal_control", "formal_wce", "app_metric", "app_value", "app_unit", "app_threshold", "app_pass",
                 "heldout_wce", "heldout_med", "heldout_app_value", "heldout_ok", "device", "dsp_inference"]
     with open(csv_path, "w", newline="") as f:
         w = csv.writer(f)
@@ -469,7 +469,7 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
             for k in res_keys:
                 row += [r["exact"][k], r["approx"][k], r["savings_pct"][k]]
             e, a = r["errors"], r["app"]
-            row += [result_tier(r).value, e["wce"], e["med"], e["mred_pct"], e["er"], r["formal"]["control_equivalence"], r["formal"]["wce_bound"],
+            row += [result_tier(r).value, e["wce"], e.get("wce_pct"), e.get("out_bits"), e["med"], e["mred_pct"], e["er"], r["formal"]["control_equivalence"], r["formal"]["wce_bound"],
                     a["name"], _fmt(a["value"], 4), a["unit"], a["threshold"], a["pass"]]
             h = r.get("heldout")
             row += [h["errors"]["wce"], h["errors"]["med"], _fmt(h["app"]["value"], 4), h["within_limits"]] if h else ["", "", "", ""]
@@ -531,13 +531,16 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
            "Every reported approximation satisfies all of them (typically WCE, MED, MRED and the application threshold), "
            "intact control outputs, and no FALSIFIED formal proof. "
            "Designs with array multipliers first try design-level partial-product pruning (largest in-budget anti-diagonal depth, "
-           f"binary search, {MAX_PPG_EVALS} steps max); otherwise cone candidates are tried cheapest first (up to {MAX_ATTEMPTS}, each "
+           f"binary search, {MAX_PPG_EVALS} steps max); otherwise cone candidates are tried cheapest first (up to {MAX_ATTEMPTS}, or {MAX_ATTEMPTS_SMALL} for designs of at most {ATTEMPT_SMALL_LCS} LC, each "
            f"reintegrated as {' then '.join(CONE_VARIANTS)}). If none passes, the exact design is reported.", "",
-           "| Benchmark | WCE (limit) | MED (limit) | MRED % (limit) | ER | Formal control | Formal WCE |",
-           "|:--|--:|--:|--:|--:|:--|:--|"]
+           "| Benchmark | WCE (limit) | WCE % of full scale | WCE % of limit | MED (limit) | MRED % (limit) | ER | Formal control | Formal WCE |",
+           "|:--|--:|--:|--:|--:|--:|--:|:--|:--|"]
     for r in results:
         e, f, lim = r["errors"], r["formal"], r["limits"]
-        md.append(f"| {r['name']} | {e['wce']:.0f} ({lim['wce']:g}) | {e['med']:.3f} ({lim['med']:g}) | {e['mred_pct']:.4f} ({'n/a' if lim['mred_pct'] is None else format(lim['mred_pct'], 'g')}) | "
+        wp = e.get("wce_pct")
+        wl = 100.0 * e["wce"] / lim["wce"] if lim.get("wce") else None
+        md.append(f"| {r['name']} | {e['wce']:.0f} ({lim['wce']:g}) | {'n/a' if wp is None else format(wp, '.6g') + ' %'} | "
+                  f"{'n/a' if wl is None else format(wl, '.2f') + ' %'} | {e['med']:.3f} ({lim['med']:g}) | {e['mred_pct']:.4f} ({'n/a' if lim['mred_pct'] is None else format(lim['mred_pct'], 'g')}) | "
                   f"{e['er']:.3f} | {f['control_equivalence']} | {f['wce_bound']} |")
 
     md += ["", "## 4. Application-specific metrics (exact vs approximate hardware)", "",

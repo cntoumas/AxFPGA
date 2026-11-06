@@ -29,6 +29,7 @@ import dataclasses
 import json
 import logging
 import math
+import os
 import re
 import shutil
 import subprocess
@@ -45,6 +46,8 @@ from axfpga.certification import certification_record
 from axfpga import cache
 from axfpga.config import yosys_cmd
 from axfpga.estimator import FpgaEstimator
+from axfpga.operators import OperatorGenerator
+from axfpga.operators.design_level import run_design_level
 from axfpga.parallel import Cancelled, depth_search, first_accepted, yosys_serialized
 from axfpga.ppg_pruner import PpgPruner
 from axfpga.ports import resolve_clock_reset
@@ -52,7 +55,7 @@ from axfpga.pyals_bridge import PyAlsBridge
 from axfpga.quality import QualitySpec, make_evaluator, power_cap
 from axfpga.quality.attrs import WireQuality
 from axfpga.reintegrator import Reintegrator
-from axfpga.tournament import Tournament
+from axfpga.tournament import DSP_LC_WEIGHT, Tournament
 from axfpga.verifier import FormalControlVerifier, FormalWceVerifier, MiterVerifier
 
 logger = logging.getLogger("axfpga.pipeline")
@@ -65,9 +68,13 @@ F_CLK_MHZ = 125.0
 # Cycles of the activity-power simulation (evenly spaced from the power stimulus). Kept short since Phase 4: the
 # gate-level VCD simulation of large designs took tens of minutes, and Vivado SAIF power (Phase 9) is the reference.
 POWER_CYCLES = 256
+TOURNAMENT_SAMPLES = 256        # random cone vectors per candidate in the Tournament (64 until Phase 5)
 FORMAL_TIMEOUT_S = 120
 SIM_TIMEOUT_S = 3600           # miter compile/run timeout (large designs, e.g. sobel_npu at 42k LUTs)
+REG_KS = (1, 2, 3, 4, 6, 8)    # operand-truncation depths tried behind registers (Stage 3c), with corrections zero and mid
 MAX_ATTEMPTS = 8               # candidates tried per design before keeping the exact design
+MAX_ATTEMPTS_SMALL = 24        # ... for designs of at most ATTEMPT_SMALL_LCS logic cells: an attempt costs seconds there, and
+ATTEMPT_SMALL_LCS = 1500       # the operator stacks fill a window of 8 with variants of one aggressive genome (Phase 5)
 MED_FRACTION_OF_BOUND = 0.5    # MED limit = WCE bound / 2
 MRED_LIMIT = 0.01              # MRED limit = 1 %
 MAX_PPG_EVALS = 7              # binary-search steps over the PPG anti-diagonal depth
@@ -100,6 +107,8 @@ class DesignSpec:
     clock: Optional[str] = None             # explicit clock / reset ports (axc_clock / axc_reset attributes win)
     reset: Optional[str] = None
     reset_active_low: Optional[bool] = None
+    through_registers: bool = True    # also relax and approximate the arithmetic behind internal registers (Stage 3c);
+                              # the environment variable AXFPGA_THROUGH_REGISTERS=0 turns it off for a whole run
     annotated: bool = False   # sources already carry (* axc_relax *) / (* axc_precise *); do not insert attributes.
                               # bound/metric then override the attribute values in the Cone metadata.
 
@@ -440,7 +449,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     shell_v = bench_work / "top_shell.v"
     meta_json = bench_work / "cone_meta.json"
 
-    extractor = ConeExtractor(annotated_files, top_module=top_mod)
+    through = bool(spec.through_registers and os.environ.get("AXFPGA_THROUGH_REGISTERS") != "0")
+    extractor = ConeExtractor(annotated_files, top_module=top_mod, through_registers=through)
     meta = extractor.extract_safe_cone(
         submod_tag=f"{top_mod}_axc_cone_0",
         out_submod_path=cone_v,
@@ -512,11 +522,22 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         if need_savings_first:
             # A candidate without savings is dropped before the expensive checks: run them in sequence.
             a_res = synth()
-            savings_ok = a_res["estimated_lcs"] < exact_res["estimated_lcs"] or a_res["total_luts"] < exact_res["total_luts"]
+            if a_res["dsps"] > exact_res["dsps"]:
+                # More DSP blocks than the exact design is never a saving (a pre-mapped DSP cone in a -nodsp run).
+                rec.update(lcs=a_res["estimated_lcs"], luts=a_res["total_luts"], _res=a_res, savings_ok=False)
+                reason = f"uses more DSP blocks than the exact design (DSP {exact_res['dsps']}->{a_res['dsps']})"
+                rec.update(outcome="rejected", reason=reason, err_ok=None)
+                logger.info("  %s [%s]: rejected: %s", label, variant, reason)
+                return rec
+            savings_ok = (a_res["estimated_lcs"] + DSP_LC_WEIGHT * a_res["dsps"]
+                          < exact_res["estimated_lcs"] + DSP_LC_WEIGHT * exact_res["dsps"]
+                          or (a_res["estimated_lcs"] <= exact_res["estimated_lcs"] and a_res["total_luts"] < exact_res["total_luts"]
+                              and a_res["dsps"] <= exact_res["dsps"]))
             if not savings_ok:
                 rec.update(lcs=a_res["estimated_lcs"], luts=a_res["total_luts"], _res=a_res, savings_ok=False)
                 no_sav = (f"no top-level savings (LC {exact_res['estimated_lcs']}->{a_res['estimated_lcs']}, "
-                          f"LUT {exact_res['total_luts']}->{a_res['total_luts']})")
+                          f"LUT {exact_res['total_luts']}->{a_res['total_luts']})"
+                          + (f", DSP {exact_res['dsps']}->{a_res['dsps']}" if exact_res["dsps"] or a_res["dsps"] else ""))
                 rec.update(outcome="rejected", reason=no_sav, err_ok=None)
                 logger.info("  %s [%s]: rejected: %s", label, variant, no_sav)
                 return rec
@@ -643,6 +664,7 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             logger.info("  no evaluated PPG depth passed every check")
 
     # Stage 3b: pyALS Candidate Tournament on the extracted Cone
+    tournament_rec: Optional[Dict[str, Any]] = None
     if accepted is None and not has_safe_cone:
         logger.warning("No safe cells extracted for %s (status: %s)", top_mod, meta.get("status"))
         fallback_reason = "no safe cone extracted" + (" and no in-budget PPG depth with savings" if ppgs else "")
@@ -652,10 +674,15 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         bridge = PyAlsBridge(cone_verilog_path=cone_v, meta_json_path=cone_meta, work_dir=pyals_dir, cut_size=4)
         tournament = Tournament(estimator=tournament_estimator or FpgaEstimator(
                                     family="xc7", device=FPGA_DEVICE, nodsp=getattr(estimator, "nodsp", False)),
-                                work_dir=pyals_dir, sim_samples=64)
+                                work_dir=pyals_dir, sim_samples=TOURNAMENT_SAMPLES, jobs=inner_jobs)
         champion = tournament.run(cone_vlog=cone_v, meta_json=cone_meta, metric=bench["metric"],
-                                  bound=bench["bound"], generators=[bridge])
-        alts = list(champion.alternatives)[:MAX_ATTEMPTS]
+                                  bound=bench["bound"], generators=[bridge, OperatorGenerator.from_env()])
+        tournament_rec = {"baseline_lcs": champion.baseline_lcs, "baseline_luts": champion.baseline_luts,
+                          "samples": TOURNAMENT_SAMPLES, "bound": champion.bound, "metric": champion.metric,
+                          "entries": [{"name": e.name, "error": e.error, "within_bound": e.passed_bound,
+                                       "lcs": e.lcs, "luts": e.luts} for e in champion.leaderboard]}
+        attempt_limit = MAX_ATTEMPTS_SMALL if exact_res["estimated_lcs"] <= ATTEMPT_SMALL_LCS else MAX_ATTEMPTS
+        alts, gaps = _ladder(list(champion.alternatives), attempt_limit)
         logger.info("Tournament: %d qualifying candidates (trying up to %d)", len(champion.alternatives), len(alts))
         exact_cone_norm = pyals_dir / "exact_cone_clean.v"
         att_root = bench_work / "attempts"
@@ -695,6 +722,19 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
                                              executor=pool if inner_jobs > 1 else None, cancel=cancel)
         attempts.extend(rec for _, rec in consumed)
         if found is not None:
+            # The first candidate that passed may sit below milder-failing ones' neighbours: try the skipped, cheaper ones
+            # between it and the previous attempt (cheapest first) and keep the cheapest that passes.
+            passed_alt = consumed[found][0][1]                     # consumed items are the job tuples (index, candidate, variant)
+            gap = gaps[alts.index(passed_alt)] if passed_alt in alts else []
+            if gap:
+                logger.info("[Attempt] %d skipped candidate(s) between %s and the previous attempt", len(gap), passed_alt.name)
+                jobs2 = [(len(jobs) + i, alt, variant) for i, (alt, variant) in enumerate((a, v) for a in gap for v in variants)]
+                with _stage_pool(inner_jobs) as (pool2, cancel2):
+                    consumed2, found2 = first_accepted(jobs2, lambda j: attempt(j, cancel2), lambda r: r.get("outcome") == "passed checks",
+                                                       executor=pool2 if inner_jobs > 1 else None, cancel=cancel2)
+                attempts.extend(rec for _, rec in consumed2)
+                if found2 is not None:
+                    consumed, found = consumed2, found2
             rec = consumed[found][1]
             top_a, map_v, map_j, cone_a = rec["_paths"]
             shutil.copy(cone_a, approx_cone_v)
@@ -703,6 +743,65 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             fallback_reason = (f"none of {len(alts)} cone candidate(s) x {len(variants)} variant(s)"
                                + (" or PPG depths" if ppgs else "") + " met every threshold (see attempts)") if alts else \
                               ("no cone candidate met the cone bound with resource savings" + (" and no in-budget PPG depth with savings" if ppgs else ""))
+
+    # Stage 3c: operand truncation of the arithmetic behind internal registers (design level, no cone-level bound).
+    # Candidates are evaluated like the PPG depths: application-stream limits, held-out gate, control proof; no WCE proof,
+    # because the error behind a register accumulates across cycles (sequential bounds are Phase 6).
+    reg_info: Optional[Dict[str, Any]] = None
+    tr = meta.get("through_registers") if through else None
+    if tr is not None:
+        reg_info = {"relaxed_registers": tr["num_registers_relaxed"], "arithmetic_sites": len(tr["sites"]),
+                    "sites_behind_registers": len(tr["sites_behind_registers"]), "tried": 0, "accepted": None}
+    if tr and tr["sites_behind_registers"]:
+        reg_dir = bench_work / "behind_registers"
+        menu = {f"k{k}_{c}": {"k": k, "comp": c} for k in REG_KS for c in ("zero", "mid")}
+        logger.info("[Stage 3c] Truncation behind registers: %d arithmetic site(s) (%d behind a register), %d candidates",
+                    len(tr["sites"]), len(tr["sites_behind_registers"]), len(menu))
+        dl = run_design_level([str(f) for f in annotated_files], top_mod, tr["sites"], menu, str(reg_dir))
+        for name, err in dl["errors"].items():
+            logger.warning("behind-register candidate %s failed: %s", name, err)
+        cands = sorted(dl["written"].items())
+
+        def eval_reg(item: Tuple[str, str], cancel: threading.Event) -> Dict[str, Any]:
+            name, path = item
+            rec = assess(Path(path), f"reg_{name}", "design", reg_dir / f"{name}_mapped.v", reg_dir / f"{name}_mapped.json",
+                         need_savings_first=False, cancel=cancel, key=f"reg_{name}")
+            rec.update(_top=Path(path))
+            return rec
+
+        with _stage_pool(inner_jobs) as (pool, cancel):
+            futs = [pool.submit(eval_reg, it, cancel) for it in cands]
+            reg_recs = [f.result() for f in futs]
+        attempts.extend(reg_recs)
+        reg_info["tried"] = len(reg_recs)
+        passing = sorted((r["lcs"], r["luts"], r["candidate"]) for r in reg_recs if r["err_ok"] and r["savings_ok"])
+        by_name = {r["candidate"]: r for r in reg_recs}
+        best_reg = None
+        for _lcs, _luts, cname in passing:
+            rec = by_name[cname]
+            if accepted is not None and rec["lcs"] >= accepted["res"]["estimated_lcs"]:
+                break                                            # not better than what the cone path already accepted
+            viol = heldout_violations(rec, rec["_top"], "heldout_" + cname)
+            if viol:
+                rec.update(outcome="rejected", reason="held-out stream: " + "; ".join(viol))
+                logger.info("  %s rejected on the held-out stream: %s", cname, "; ".join(viol))
+                continue
+            ctrl = _formal_control(exact_top_v, rec["_top"], cone_meta)
+            if ctrl == "FALSIFIED":
+                rec.update(outcome="rejected", reason="formal control=FALSIFIED")
+                continue
+            best_reg = (rec, ctrl)
+            break
+        if best_reg is not None:
+            rec, ctrl = best_reg
+            nm = rec["candidate"][len("reg_"):]
+            accepted = finalize(rec, rec["_top"], reg_dir / f"{nm}_mapped.v", reg_dir / f"{nm}_mapped.json", ctrl,
+                                "N/A (truncation behind registers; errors measured on application stream)")
+            reg_info["accepted"] = rec["candidate"]
+        else:
+            logger.info("  no behind-register candidate passed every check")
+        if accepted is None and not has_safe_cone:
+            fallback_reason = "no safe cone extracted and no behind-register candidate passed"
 
     for r in attempts:   # drop internal objects before export
         for k in [k for k in r if k.startswith("_")]:
@@ -769,6 +868,7 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     logger.info("Power: exact %.3f mW -> approx %.3f mW", exact_pwr["dynamic_power_mw"], approx_pwr["dynamic_power_mw"])
 
     eu, au = _util(exact_res, exact_pwr), _util(approx_res, approx_pwr)
+    out_bits = dict(ports["outputs"]).get(bench["relax_wire"])   # width of the relaxed output (full scale = 2^bits - 1)
     return {
         "id": bench_id,
         "name": bench["name"],
@@ -790,6 +890,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             "med": round(errs["med"], 4),
             "mred_pct": round(errs["mred"] * 100.0, 4),
             "er": round(errs["er"], 4),
+            "out_bits": out_bits,
+            "wce_pct": round(100.0 * errs["wce"] / ((1 << out_bits) - 1), 6) if out_bits else None,
             "domain": "application stream, relaxed output in its number format (LSB units)",
         },
         "formal": {"control_equivalence": formal_ctrl, "wce_bound": formal_wce},
@@ -799,10 +901,42 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         "quality": q_recs,
         "heldout": heldout,
         "heldout_reason": heldout_reason,
+        "tournament": tournament_rec,
+        "through_registers": reg_info,
         "attempts": attempts,
         "app": app,
         "power_model": {k: exact_pwr[k] for k in ("method", "f_clk_mhz", "energy_pj")} | {"cycles": exact_pwr["cycles"]},
     }
+
+
+def _ladder(alts: List[Any], limit: int) -> Tuple[List[Any], List[List[Any]]]:
+    """The candidates to attempt, best (cheapest) first, and the ones skipped between consecutive attempts.
+
+    Greedy stacking makes many candidates of almost the same cost whose errors rise together: the first ``limit`` by cost
+    would be variants of one aggressive genome that all fail the application-stream check, and the milder candidates that
+    would pass are never tried. So: one candidate per distinct cone cost, spread evenly over the whole range when there
+    are more than ``limit`` of them (always including the cheapest and the mildest), then cost ties up to ``limit``.
+    ``gaps[i]`` holds the distinct-cost candidates skipped between attempt i - 1 and attempt i: when attempt i is the
+    first to pass, they are tried next (cheapest first), because one of them may pass too and save more.
+    With at most ``limit`` distinct costs this is the plain best-first prefix and every gap is empty.
+    """
+    seen, distinct, ties = set(), [], []
+    for a in alts:                       # alternatives are already sorted by cost, luts, error, name
+        key = a.lcs + DSP_LC_WEIGHT * a.dsps
+        (ties if key in seen else distinct).append(a)
+        seen.add(key)
+    n = len(distinct)
+    if n <= limit:
+        return (distinct + ties)[:limit], [[] for _ in range(min(limit, n + len(ties)))]
+    picks = sorted({round(j * (n - 1) / (limit - 1)) for j in range(limit)}) if limit > 1 else [0]
+    chosen = [distinct[i] for i in picks]
+    gaps = [[]] + [distinct[picks[j - 1] + 1:picks[j]] for j in range(1, len(picks))]
+    return chosen, gaps
+
+
+def _spread_attempts(alts: List[Any], limit: int) -> List[Any]:
+    """The candidates to attempt first (see ``_ladder``)."""
+    return _ladder(alts, limit)[0]
 
 
 def _resolve_quality(evaluator: Any, bench: Dict[str, Any]) -> QualitySpec:

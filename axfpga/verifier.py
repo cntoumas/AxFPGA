@@ -477,10 +477,23 @@ class FormalWceVerifier:
         if not self.target_signals:
             raise ValueError("FormalWceVerifier: no relaxed signal to check (meta_json has no relaxed_signals)")
         for idx, sig in enumerate(self.target_signals):
-            wire_name = match_cone_output(sig.get("wire", ""), list(out_map))
+            hint = sig.get("cone_output")      # the extractor's own record of which cone port carries the relaxed wire
+            if hint and hint not in out_map:
+                continue                       # this relaxed wire is carried by another cone: not this cone's bound
+            wire_name = hint if hint in out_map else match_cone_output(sig.get("wire", ""), list(out_map))
             port_meta = out_map[wire_name]
             width = port_meta["width"]
             is_signed = port_meta.get("is_signed", False) or self.signed_outputs
+            # An explicit axc_format decides how the words are read, as it does for every measured error.
+            fmt_kind, fmt_w = None, width
+            fmt_text = (sig.get("quality") or {}).get("format")
+            if fmt_text:
+                from axfpga.quality.formats import NumberFormat
+                nf = NumberFormat.parse(fmt_text).bind(width)
+                fmt_kind, fmt_w = nf.kind, nf.width
+                if fmt_kind == "sm" and fmt_w < 2:
+                    fmt_kind = "u"
+                is_signed = fmt_kind == "s"
 
             # Integer bound for the WCE comparison: required, never defaulted
             raw_bound = sig.get("bound")
@@ -489,9 +502,18 @@ class FormalWceVerifier:
             bound_val = int(round(float(raw_bound)))
 
             ext_w = width + 1
-            if is_signed:
+            if fmt_kind == "sm":
+                def dec(side: str) -> str:
+                    w_ = f"{side}_{wire_name}"
+                    return (f"({w_}[{fmt_w - 1}] ? -$signed({{1'b0, {w_}[{fmt_w - 2}:0]}}) : $signed({{1'b0, {w_}[{fmt_w - 2}:0]}}))")
                 lines.extend([
-                    f"  wire signed [{ext_w}:0] raw_diff_{idx} = $signed(exact_{wire_name}) - $signed(approx_{wire_name});",
+                    f"  wire signed [{ext_w}:0] raw_diff_{idx} = {dec('exact')} - {dec('approx')};",
+                    f"  wire [{ext_w}:0] abs_diff_{idx} = raw_diff_{idx}[{ext_w}] ? -raw_diff_{idx} : raw_diff_{idx};",
+                    f"  wire viol_{idx} = (abs_diff_{idx} > {ext_w+1}'d{bound_val});",
+                ])
+            elif is_signed:
+                lines.extend([
+                    f"  wire signed [{ext_w}:0] raw_diff_{idx} = $signed(exact_{wire_name}[{fmt_w - 1}:0]) - $signed(approx_{wire_name}[{fmt_w - 1}:0]);",
                     f"  wire [{ext_w}:0] abs_diff_{idx} = raw_diff_{idx}[{ext_w}] ? -raw_diff_{idx} : raw_diff_{idx};",
                     f"  wire viol_{idx} = (abs_diff_{idx} > {ext_w+1}'d{bound_val});",
                 ])
@@ -502,10 +524,10 @@ class FormalWceVerifier:
                 ])
             viol_terms.append(f"viol_{idx}")
 
-        if viol_terms:
-            lines.append(f"  assign wce_violation = {' | '.join(viol_terms)};")
-        else:
-            lines.append("  assign wce_violation = 1'b0;")
+        if not viol_terms:
+            # Never prove a vacuous bound: every relaxed signal belonged to another cone.
+            raise ValueError("FormalWceVerifier: no relaxed signal is carried by this cone's outputs")
+        lines.append(f"  assign wce_violation = {' | '.join(viol_terms)};")
 
         lines.append("endmodule")
         miter_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

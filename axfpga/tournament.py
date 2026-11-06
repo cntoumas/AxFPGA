@@ -14,6 +14,7 @@ import random
 import re
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -31,6 +32,11 @@ logger = logging.getLogger("axfpga.tournament")
 # normalised exact Cone path. Returns dicts with at least "name" and "path".
 Generator = Callable[[Dict[str, Any], Path, float], List[Dict[str, Any]]]
 
+# Logic cells that one DSP48E1 block is worth when candidates are ranked. Deliberately small: a saved DSP counts as a
+# saving, but a candidate never looks cheaper by replacing DSP blocks with soft logic (a soft 25x18 multiplier costs
+# several hundred logic cells, and the LUT-mapped candidates of a DSP cone use no DSP at all).
+DSP_LC_WEIGHT = 20
+
 
 @dataclass(frozen=True)
 class Entry:
@@ -41,6 +47,7 @@ class Entry:
     passed_bound: bool
     lcs: Optional[int] = None
     luts: Optional[int] = None
+    dsps: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -53,6 +60,7 @@ class Alternative:
     lcs: int
     luts: int
     carry4: int
+    dsps: int = 0
 
 
 @dataclass(frozen=True)
@@ -80,8 +88,9 @@ class Champion:
 class Tournament:
     """Selects the Champion Candidate for a Cone under an error Bound."""
 
-    def __init__(self, estimator: FpgaEstimator, work_dir: str | Path, sim_samples: int = 256):
+    def __init__(self, estimator: FpgaEstimator, work_dir: str | Path, sim_samples: int = 256, jobs: int = 1):
         self.estimator = estimator
+        self.jobs = max(1, int(jobs))
         self.work_dir = Path(work_dir).resolve()
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.sim_samples = sim_samples
@@ -107,6 +116,7 @@ class Tournament:
         base_lcs = base.get("estimated_lcs", 100)
         base_luts = base.get("total_luts", 0)
         base_c4 = base.get("carry4", 0)
+        base_dsps = base.get("dsps", 0)
 
         candidates: List[Dict[str, Any]] = []
         for gen in generators:
@@ -120,12 +130,14 @@ class Tournament:
 
         leaderboard: List[Entry] = []
         valid: List[Dict[str, Any]] = []
-        for cand in candidates:
+
+        def evaluate(cand: Dict[str, Any]) -> Tuple[Entry, Optional[Dict[str, Any]]]:
+            """Error and cost of one candidate on the cone: its leaderboard entry and, if within the bound, a record.
+            Pure (subprocess steps only), so candidates can be evaluated concurrently."""
             sim_res = self._simulate_candidate(exact_v, Path(cand["path"]), iface, stim_hex, metric, self.work_dir)
             err = sim_res.get(metric.lower(), 1e9)
             if err > bound:
-                leaderboard.append(Entry(cand["name"], err, False))
-                continue
+                return Entry(cand["name"], err, False), None
             cost = self.estimator.evaluate_netlist(cand["path"], top_module=top)
             rec = {
                 "name": cand["name"],
@@ -134,21 +146,54 @@ class Tournament:
                 "lcs": cost.get("estimated_lcs", 9999),
                 "luts": cost.get("total_luts", 0),
                 "carry4": cost.get("carry4", 0),
+                "dsps": cost.get("dsps", 0),
             }
-            valid.append(rec)
-            leaderboard.append(Entry(rec["name"], err, True, rec["lcs"], rec["luts"]))
+            if "genome" in cand:
+                rec["genome"] = cand["genome"]
+            return Entry(rec["name"], err, True, rec["lcs"], rec["luts"], rec["dsps"]), rec
 
-        beneficial = [m for m in valid if m["lcs"] < base_lcs or m["luts"] < base_luts]
+        def score_many(cands: Sequence[Dict[str, Any]]) -> List[Optional[Dict[str, Any]]]:
+            """Evaluate candidates (concurrently with ``jobs`` > 1); results and leaderboard keep the input order."""
+            if self.jobs > 1 and len(cands) > 1:
+                with ThreadPoolExecutor(max_workers=self.jobs) as pool:
+                    results = list(pool.map(evaluate, cands))
+            else:
+                results = [evaluate(c) for c in cands]
+            for entry, _ in results:
+                leaderboard.append(entry)
+            return [rec for _, rec in results]
+
+        valid.extend(r for r in score_many(candidates) if r is not None)
+
+        # Generators that stack their own operators (greedy refinement of the best candidates) get the scoring function.
+        for gen in generators:
+            refine = getattr(gen, "refine", None)
+            if refine is None:
+                continue
+            try:
+                valid.extend(refine(iface, self.work_dir, bound, list(valid), score_many, base_lcs))
+            except Exception as exc:
+                logger.warning("Refinement by %r failed: %s", gen, exc)
+
+        # A saved DSP48 counts as a saving: cost = logic cells + DSP_LC_WEIGHT x DSP48 blocks. A LUT-mapped candidate of a
+        # cone that Yosys maps to DSPs uses none, but pays for it in logic cells and so does not look cheaper.
+        def cost_of(m: Dict[str, Any]) -> int:
+            return m["lcs"] + DSP_LC_WEIGHT * m["dsps"]
+
+        base_cost = base_lcs + DSP_LC_WEIGHT * base_dsps
+        # Fewer LUTs alone is not a saving when the logic-cell count (LUT + 2 x CARRY4) grows: carry chains count.
+        beneficial = [m for m in valid if cost_of(m) < base_cost
+                      or (m["lcs"] <= base_lcs and m["luts"] < base_luts and m["dsps"] <= base_dsps)]
         if beneficial:
             # The name is the final key: equal-cost candidates must not depend on generation order.
-            beneficial.sort(key=lambda m: (m["lcs"], m["luts"], m["error"], m["name"]))
+            beneficial.sort(key=lambda m: (cost_of(m), m["luts"], m["error"], m["name"]))
             champ = beneficial[0]
             fell_back = False
             logger.info("CHAMPION: %s | LCs %d -> %d | %s=%.2f", champ["name"], base_lcs, champ["lcs"], metric, champ["error"])
         else:
             logger.warning("No candidate met bound %s=%.2f with savings; falling back to exact cone", metric, bound)
             champ = {"name": "baseline_fallback", "path": exact_v, "error": 0.0,
-                     "lcs": base_lcs, "luts": base_luts, "carry4": base_c4}
+                     "lcs": base_lcs, "luts": base_luts, "carry4": base_c4, "dsps": base_dsps}
             fell_back = True
 
         savings = round((base_lcs - champ["lcs"]) / base_lcs * 100.0, 2) if (base_lcs > 0 and not fell_back) else 0.0
@@ -169,7 +214,7 @@ class Tournament:
             fell_back=fell_back,
             leaderboard=tuple(leaderboard),
             alternatives=tuple(
-                Alternative(m["name"], m["path"], m["error"], m["lcs"], m["luts"], m["carry4"]) for m in beneficial
+                Alternative(m["name"], m["path"], m["error"], m["lcs"], m["luts"], m["carry4"], m["dsps"]) for m in beneficial
             ),
         )
 
@@ -217,7 +262,8 @@ class Tournament:
         ``out_path`` gives each concurrent caller its own output file.
         """
         remap_out = Path(out_path) if out_path else self.work_dir / "remapped_approx_cone.v"
-        ckey = cache.make_key("remap", [netlist], family=self.estimator.family)
+        nodsp = bool(getattr(self.estimator, "nodsp", False))
+        ckey = cache.make_key("remap", [netlist], family=self.estimator.family, nodsp=nodsp)
         hit = cache.load("remap", ckey)
         if hit is not None:
             if hit[0] == "ok" and cache.restore(hit[1], "remap.v", remap_out):
@@ -229,7 +275,7 @@ class Tournament:
             f"hierarchy -check -auto-top; "
             f"opt_clean -purge; "
             f"opt -mux_undef -mux_bool -undriven -fine; "
-            f"synth_xilinx -family {self.estimator.family} -noiopad -run begin:check; "
+            f"synth_xilinx -family {self.estimator.family} -noiopad {'-nodsp ' if nodsp else ''}-run begin:check; "
             f"opt_clean -purge; "
             f"write_verilog -noattr {remap_out}"
         )
@@ -280,7 +326,7 @@ class Tournament:
         run_dir: Path,
     ) -> Dict[str, float]:
         """Run cycle-accurate dual miter testbench via iverilog and compute error (cached by content)."""
-        ckey = cache.make_key("tsim", [exact_vlog, approx_vlog, stim_hex], iface=iface, metric=metric)
+        ckey = cache.make_key("tsim", [exact_vlog, approx_vlog, stim_hex], iface=iface, metric=metric, tb="p5-decoded-diff")
         hit = cache.load("tsim", ckey)
         if hit is not None:
             return dict(hit[0])
@@ -353,11 +399,33 @@ class Tournament:
           clean_exact[b_idx] = (exact_{rel_clean}[b_idx + {rel_lsb}] === 1'b1) ? 1'b1 : 1'b0;
           clean_approx[b_idx] = (approx_{rel_clean}[b_idx + {rel_lsb}] === 1'b1) ? 1'b1 : 1'b0;
         end
-        if ({"1" if rel_signed else "0"}) begin
-          diff = $signed(clean_exact) - $signed(clean_approx);
-        end else begin
-          diff = (clean_exact >= clean_approx) ? (clean_exact - clean_approx) : -(clean_approx - clean_exact);
-        end
+"""
+        # The error is the difference of the decoded values, computed one bit wider than the word so it cannot wrap.
+        # Before Phase 5 the unsigned branch evaluated -(approx - exact) at the word width, so every candidate above the
+        # exact value got an error near 2^W and was rejected, and the signed branch wrapped the same way. An explicit
+        # axc_format (iface["relaxed_format"]) selects the decoding, as on the application stream.
+        rel_fmt = iface.get("relaxed_format")
+        fw = rel_fmt["width"] if rel_fmt else rel_width
+        kind = rel_fmt["kind"] if rel_fmt else ("s" if rel_signed else "u")
+        if kind == "sm" and fw < 2:
+            kind = "u"
+        if kind == "s":
+            signed_calc += f"""
+        ev = $signed(clean_exact[{fw - 1}:0]);
+        av = $signed(clean_approx[{fw - 1}:0]);
+"""
+        elif kind == "sm":
+            signed_calc += f"""
+        ev = clean_exact[{fw - 1}] ? -$signed({{1'b0, clean_exact[{fw - 2}:0]}}) : $signed({{1'b0, clean_exact[{fw - 2}:0]}});
+        av = clean_approx[{fw - 1}] ? -$signed({{1'b0, clean_approx[{fw - 2}:0]}}) : $signed({{1'b0, clean_approx[{fw - 2}:0]}});
+"""
+        else:
+            signed_calc += f"""
+        ev = $signed({{1'b0, clean_exact}});
+        av = $signed({{1'b0, clean_approx}});
+"""
+        signed_calc += """
+        diff = ev - av;
 """
         tb_code = f"""`timescale 1ns/1ps
 module tb_eval;
@@ -371,6 +439,7 @@ module tb_eval;
   integer error_count;
   integer b_idx;
   reg [{rel_width-1}:0] clean_exact, clean_approx;
+  reg signed [{rel_width}:0] ev, av;
   real diff;
 
   {iface['module_name']} u_exact (

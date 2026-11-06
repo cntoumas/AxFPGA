@@ -57,10 +57,13 @@ def parse_cone_interface(cone_vlog: str | Path, meta_json: Optional[str | Path] 
     # Select relaxed output: the annotated (* axc_relax *) wire if it is a Cone output,
     # else the widest multi-bit output (the main arithmetic bus)
     meta_wire = None
+    meta_format = None
     if meta_json and Path(meta_json).exists():
         try:
             meta = json.loads(Path(meta_json).read_text(encoding="utf-8"))
             meta_wire = next((s.get("wire") for s in meta.get("relaxed_signals", []) if s.get("wire") in outputs), None)
+            rel_sigs = meta.get("relaxed_signals", [])
+            meta_format = next((s.get("quality", {}).get("format") for s in rel_sigs if s.get("quality", {}).get("format")), None)
         except (OSError, ValueError):
             meta_wire = None
 
@@ -82,11 +85,24 @@ def parse_cone_interface(cone_vlog: str | Path, meta_json: Optional[str | Path] 
     ):
         outputs[relaxed_out]["signed"] = True
 
+    # Explicit number format of the relaxed output (axc_format): {"kind": "u"|"s"|"sm", "width": W, "frac": F}, else None.
+    # With it the Tournament measures the error on the decoded value, like the application stream does; without it
+    # the legacy raw-word distance is kept.
+    relaxed_format = None
+    if meta_format and relaxed_out in outputs:
+        try:
+            from axfpga.quality.formats import NumberFormat
+            nf = NumberFormat.parse(meta_format).bind(outputs[relaxed_out]["width"])
+            relaxed_format = {"kind": nf.kind, "width": nf.width, "frac": nf.frac}
+        except ValueError:
+            relaxed_format = None
+
     return {
         "module_name": mod_name,
         "ports": raw_ports,
         "inputs": inputs,
         "outputs": outputs,
         "relaxed_output": relaxed_out,
+        "relaxed_format": relaxed_format,
         "raw_content": mod_content,
     }

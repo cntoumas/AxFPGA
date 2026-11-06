@@ -25,8 +25,8 @@ from typing import Any, Dict, List
 VOLATILE_KEY = re.compile(r"(^|_)(time|times|elapsed|wall|seconds|date|timestamp)(_|$)", re.IGNORECASE)
 # Added after the Phase-0 anchor (certification derives from the formal statuses; quality / heldout are the
 # per-constraint records and the held-out stream, which the anchor has no counterpart for; dsp_inference (Phase 4)
-# restates the run's --dsp setting), so not compared.
-IGNORED_KEYS = frozenset({"certification", "quality", "heldout", "heldout_reason", "dsp_inference"})
+# restates the run's --dsp setting; tournament (Phase 5) is the cone candidate leaderboard), so not compared.
+IGNORED_KEYS = frozenset({"certification", "quality", "heldout", "heldout_reason", "dsp_inference", "tournament"})
 NETLISTS = ("exact_mapped.v", "approx_mapped.v")
 
 

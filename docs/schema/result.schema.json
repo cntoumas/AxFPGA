@@ -113,6 +113,18 @@
         "top": { "type": "string" },
         "device": { "type": "string" },
         "dsp_inference": { "type": "boolean", "description": "false when synthesized with -nodsp (Phase 4; absent in earlier results)" },
+        "tournament": {
+          "type": ["object", "null"],
+          "description": "Cone candidate leaderboard of the pyALS Tournament (Phase 5); null when the design-level PPG path decided or no cone was extracted",
+          "properties": {
+            "baseline_lcs": { "type": "integer" }, "baseline_luts": { "type": "integer" }, "samples": { "type": "integer" },
+            "bound": { "type": "number" }, "metric": { "type": "string" },
+            "entries": { "type": "array", "items": { "type": "object",
+              "required": ["name", "error", "within_bound"],
+              "properties": { "name": { "type": "string" }, "error": { "type": "number" }, "within_bound": { "type": "boolean" },
+                              "lcs": { "type": ["integer", "null"] }, "luts": { "type": ["integer", "null"] } } } }
+          }
+        },
         "engine": { "type": "string" },
         "method": { "type": "string", "description": "Chosen approximation, or \"exact (fallback)\"." },
         "fell_back": { "type": "boolean" },
@@ -134,6 +146,8 @@
             "med": { "type": ["number", "null"] },
             "mred_pct": { "type": ["number", "null"] },
             "er": { "type": ["number", "null"] },
+            "out_bits": { "type": ["integer", "null"], "description": "Width of the relaxed output; full scale = 2^out_bits - 1" },
+            "wce_pct": { "type": ["number", "null"], "description": "Worst-case error as % of the output full-scale range" },
             "domain": { "type": "string" }
           }
         },

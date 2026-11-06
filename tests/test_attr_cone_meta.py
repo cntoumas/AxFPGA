@@ -75,3 +75,12 @@ def test_two_clocks_rejected(tmp_path):
 def test_clock_on_output_rejected(tmp_path):
     with pytest.raises(ValueError, match="only input ports"):
         run(tmp_path, TOY.replace("axc_seed = 5,", "axc_clock,"))
+
+
+def test_cone_output_names_the_port_that_carries_the_relaxed_wire(tmp_path):
+    meta = run(tmp_path, """module t(input clk, input [7:0] a, input [7:0] b,
+      (* axc_relax, axc_bound = 12 *) output reg [8:0] y);
+      always @(posedge clk) y <= a + b; endmodule""")
+    sig = meta["relaxed_signals"][0]
+    ports = [p["name"] for p in meta["cones"][0]["submodule_outputs"]]
+    assert sig["cone_output"] in ports
