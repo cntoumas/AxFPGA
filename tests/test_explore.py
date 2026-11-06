@@ -196,3 +196,11 @@ def test_catalog_enumerates_every_candidate(tmp_path):
     t = CatalogTechnique("demo", "demo family", files)
     s = Exploration(t, _FakeEval(), tmp_path / "x", budget_fe=1, jobs=1).run()
     assert s["strategy"] == "exhaustive" and s["evaluations"] == 3 and s["best"]["describe"] == "cand2"
+
+
+def test_output_site_survives_the_site_cap():
+    sites = [{"id": f"add@x:{i}", "kind": "add", "ops": ["trunc"], "max_k": 3, "weight": 100 - i, "y_width": 8} for i in range(50)]
+    sites.append({"id": "out@y", "kind": "out", "ops": ["out"], "max_k": 7, "weight": 8, "y_width": 8})
+    t = SiteOpsTechnique("trunc", sites, Path("unused.v"), "m", "y", max_sites=40)
+    ids = [g["site"] for g in t.genes]
+    assert len(ids) == 40 and "out@y" in ids

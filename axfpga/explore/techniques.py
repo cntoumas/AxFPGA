@@ -130,7 +130,11 @@ class SiteOpsTechnique(Technique):
             self.genes.append({"site": s["id"], "op": op, "max_k": mk, "comp": op in ("trunc", "wire", "out"),
                                "kind": s["kind"], "width": s.get("y_width")})
         if len(self.genes) > max_sites:
-            keep = sorted(range(len(self.genes)), key=lambda i: (-(self.sites[i].get("weight") or 0), self.genes[i]["site"]))[:max_sites]
+            # the output bus is always kept (it is the cheapest site to reason about and often the best one);
+            # the other sites are ranked by weight
+            ranked = sorted(range(len(self.genes)), key=lambda i: (self.sites[i]["kind"] != "out",
+                                                                   -(self.sites[i].get("weight") or 0), self.genes[i]["site"]))
+            keep = ranked[:max_sites]
             keep = sorted(keep)
             self.genes = [self.genes[i] for i in keep]
             self.sites = [self.sites[i] for i in keep]
