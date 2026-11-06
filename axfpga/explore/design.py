@@ -18,21 +18,28 @@ from axfpga.estimator import FpgaEstimator
 from axfpga.explore.evaluate import DSP_LC_WEIGHT, error_metrics, violations
 from axfpga.quality.metrics import decoded
 
-DESIGN_VECTORS = 1024
+DESIGN_VECTORS = 2048
 
 
 class DesignEvaluator:
     def __init__(self, exact_top_v: Path, top: str, work_dir: Path, estimator: FpgaEstimator, limits: Dict[str, float],
                  sim_kw: Dict[str, Any], fmt: Any, wire: str, skip: int, normalize: Callable[[Path, Path], Path],
-                 base: Dict[str, Any], n_vectors: int = DESIGN_VECTORS, seed: int = 20261106):
+                 base: Dict[str, Any], n_vectors: int = DESIGN_VECTORS, seed: int = 20261106,
+                 vectors: Optional[List[Dict[str, int]]] = None):
         self.work = Path(work_dir)
         self.work.mkdir(parents=True, exist_ok=True)
         self.top, self.estimator, self.fmt, self.wire, self.skip = top, estimator, fmt, wire, skip
         self.limits = {k: v for k, v in limits.items() if v is not None}
         self.normalize = normalize
         self.sim_kw = dict(sim_kw, work_dir=self.work / "sim")
-        rnd = random.Random(seed)
-        self.vectors = [{n: rnd.getrandbits(w) for n, w in sim_kw["inputs"]} for _ in range(n_vectors)]
+        if vectors:
+            # the design's declared input stimulus (its inputs only; the application metric is not used here)
+            self.vectors = list(vectors[:n_vectors])
+            self.stimulus = "declared stimulus"
+        else:
+            rnd = random.Random(seed)
+            self.vectors = [{n: rnd.getrandbits(w) for n, w in sim_kw["inputs"]} for _ in range(n_vectors)]
+            self.stimulus = "random vectors"
         self.base = base
         self.base_cost = base["estimated_lcs"] + DSP_LC_WEIGHT * base["dsps"]
         self.exact_rows = self._sim(exact_top_v, "exact")

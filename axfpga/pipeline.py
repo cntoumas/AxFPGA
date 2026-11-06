@@ -630,7 +630,7 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             cone_estimator=tournament_estimator or FpgaEstimator(family="xc7", device=FPGA_DEVICE,
                                                                  nodsp=getattr(estimator, "nodsp", False)),
             exact_res=exact_res, evaluator=evaluator, sim_kw=sim_kw, skip=skip, inner_jobs=inner_jobs,
-            assess=assess, finalize=finalize, attempts=attempts, approx_cone_v=approx_cone_v)
+            assess=assess, finalize=finalize, attempts=attempts, approx_cone_v=approx_cone_v, app_vectors=vectors)
     if ppgs and not meta_mode:
         ppg_dir = bench_work / "ppg"
         ppg_dir.mkdir(parents=True, exist_ok=True)
@@ -948,7 +948,7 @@ NO_PROOF = "N/A (design-space exploration: no proofs run)"
 
 def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, annotated_files, top_mod, cone_v, shell_v,
                    cone_meta, has_safe_cone, quality, estimator, cone_estimator, exact_res, evaluator, sim_kw, skip,
-                   inner_jobs, assess, finalize, attempts, approx_cone_v):
+                   inner_jobs, assess, finalize, attempts, approx_cone_v, app_vectors=None):
     """Design-space exploration of C_safe, one search per technique, then the synthesized check of each technique's
     best points (full synthesis, control sanity simulation, application stream and metric). Winner: lowest cost among
     the techniques whose design passed. If none passed: one re-search with the error limits halved, then exact."""
@@ -977,8 +977,10 @@ def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, anno
             try:
                 dev = DesignEvaluator(exact_top_v, top_mod, ex_dir / tag / "design", estimator, lim,
                                       dict(sim_kw), evaluator.fmt, bench["relax_wire"], skip,
-                                      lambda src, out: _normalize_rtl(src, top_mod, out), exact_res)
+                                      lambda src, out: _normalize_rtl(src, top_mod, out), exact_res,
+                                      vectors=app_vectors)
                 evaluators["design"] = dev
+                info["design_stimulus"] = dev.stimulus
                 if ppgs and want("ppg_design"):
                     k_max = max(i + j for i, j in ppgs) + 1
                     techs.append(PpgDesignTechnique(exact_code, k_max, PpgPruner(work_dir=ex_dir / tag / "ppg")))
@@ -1033,7 +1035,10 @@ def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, anno
                 algorithm, limits)
     summaries = explore(techs, evs, ex_dir / "main", algorithm, inner_jobs, primary)
     checks = check(summaries, "main")
-    if not any(c["passed"] for c in checks) and any(s["best"] for s in summaries):
+    # Re-search with tighter limits only helps when designs failed on error or the application metric, not when the
+    # synthesized design simply saved nothing (e.g. a design that is one DSP block).
+    savings_only = all(r.startswith(("no top-level savings", "uses more DSP")) for c in checks for r in c["reasons"])
+    if not any(c["passed"] for c in checks) and any(s["best"] for s in summaries) and not savings_only:
         half = {k: v / 2.0 for k, v in limits.items()}
         logger.info("[Explore] no synthesized point passed every check: re-search with halved limits %s", half)
         info["re_search"] = True
@@ -1058,6 +1063,7 @@ def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, anno
     passed = [c["rec"] for c in checks if c["passed"]]
     if not passed:
         reason = ("no technique found a feasible point with savings" if not any(s["best"] for s in summaries)
+                  else "no synthesized design saved resources" if savings_only
                   else "no synthesized point passed the full-design checks (see exploration)")
         return None, reason, info
     win = min(passed, key=lambda r: (r["lcs"] + DSP_LC_WEIGHT * r["_res"]["dsps"], r.get("wce") or 0, r["candidate"]))
