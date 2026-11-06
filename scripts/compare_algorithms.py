@@ -175,11 +175,12 @@ def main() -> None:
     else:
         res = {r["id"]: r for r in json.loads(Path(a.run_results).read_text())}
         jobs = []
-        for d in a.designs.split(","):
-            b = Path(a.run_build) / d
-            jobs.append({"design": d, "cone": str(b / "extracted_cone.v"), "meta": str(b / "cone_meta.json"),
-                         "limits": limits_of(res[d]), "work": str(Path(a.work) / d), "algos": a.algos.split(","),
-                         "seeds": list(range(1, a.seeds + 1)), "budget": a.budget, "budget_s": a.budget_s, "jobs": a.jobs})
+        for algo in a.algos.split(","):          # one job per (design, algorithm): balances slow and fast designs
+            for d in a.designs.split(","):
+                b = Path(a.run_build) / d
+                jobs.append({"design": d, "cone": str(b / "extracted_cone.v"), "meta": str(b / "cone_meta.json"),
+                             "limits": limits_of(res[d]), "work": str(Path(a.work) / d / algo), "algos": [algo],
+                             "seeds": list(range(1, a.seeds + 1)), "budget": a.budget, "budget_s": a.budget_s, "jobs": a.jobs})
         rows = []
         with ProcessPoolExecutor(max_workers=a.parallel) as pool:
             for r in pool.map(run_design, jobs):

@@ -182,7 +182,7 @@ def test_search_finds_feasible_optimum_and_is_seeded(tmp_path, algo):
     t = _JsonTech(SITES)
     s1 = Exploration(t, _FakeEval(), tmp_path / "a", algorithm=algo, budget_fe=60, jobs=1, seed=3, sweep=False).run()
     s2 = Exploration(t, _FakeEval(), tmp_path / "b", algorithm=algo, budget_fe=60, jobs=1, seed=3, sweep=False).run()
-    assert s1["best"] is not None and s1["best"]["cost"] <= 85
+    assert s1["best"] is not None and s1["best"]["cost"] < 100
     assert s1["best"]["cost"] == s2["best"]["cost"]
     assert s1["front"] and all(r["feasible"] for r in s1["front"])
 

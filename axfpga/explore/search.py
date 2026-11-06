@@ -117,6 +117,21 @@ class Exploration:
             self.best_trace.append((len(self.archive), best))
         return row
 
+    def _sparse(self, rnd: random.Random) -> Dict[str, Any]:
+        """A random genome near the exact design: each site active with probability ~2/dims, mostly light depths.
+        Approximation spaces are feasible only near the exact design; dense random genomes almost never are."""
+        genes = self.tech.genes
+        p = min(0.5, 2.0 / max(1, len(genes)))
+        ks, cs = [], []
+        for g in genes:
+            k = 0
+            if rnd.random() < p:
+                k = rnd.randint(1, max(1, g["max_k"] // 3)) if rnd.random() < 0.7 else rnd.randint(1, g["max_k"])
+            ks.append(k)
+            if g.get("comp"):
+                cs.append(rnd.choice(COMP_SET))
+        return self.tech.vector_to_genome(ks, cs)
+
     def _out_of_budget(self) -> bool:
         return self.calls >= self.budget_fe or (time.time() - self.t0) > self.budget_s
 
@@ -152,9 +167,7 @@ class Exploration:
         while not self._out_of_budget():
             batch = []
             for _ in range(max(1, self.jobs)):
-                ks = [rnd.randint(0, g["max_k"]) for g in self.tech.genes]
-                cs = [rnd.choice(COMP_SET) for g in self.tech.genes if g.get("comp")]
-                batch.append(self.tech.vector_to_genome(ks, cs))
+                batch.append(self._sparse(rnd))
             self._parallel(batch, "random")
 
     def _greedy(self) -> None:
@@ -205,23 +218,22 @@ class Exploration:
         epochs = max(2, self.budget_fe)
         model = _model(self.algorithm, epochs)
         term = {"max_fe": self.budget_fe, "max_time": self.budget_s, "max_early_stop": EARLY_STOP}
+        def encode(g: Dict[str, Any]) -> np.ndarray:
+            ks = [int(g.get(gene["site"], {}).get("k", 0)) for gene in tech.genes]
+            cs = [g.get(gene["site"], {}).get("comp", "zero") for gene in tech.genes if gene.get("comp")]
+            vec = list(prob.bounds[0].encode(ks))
+            if n_comp:
+                vec += list(prob.bounds[1].encode(cs))
+            return np.array(vec, dtype=float)
+
         starts = None
-        if self.warm:
-            starts = []
-            for g in self.warm[:POP_SIZE]:
-                ks = [int(g.get(gene["site"], {}).get("k", 0)) for gene in tech.genes]
-                cs = [g.get(gene["site"], {}).get("comp", "zero") for gene in tech.genes if gene.get("comp")]
-                vec = list(prob.bounds[0].encode(ks))
-                if n_comp:
-                    vec += list(prob.bounds[1].encode(cs))
-                starts.append(np.array(vec, dtype=float))
-            pop = getattr(model, "pop_size", None)
-            if pop:
-                while len(starts) < pop:
-                    starts.append(prob.generate_solution())
-                starts = starts[:pop]
-            else:
-                starts = None
+        pop = getattr(model, "pop_size", None)
+        if pop:
+            rnd = random.Random(self.seed)
+            seeds = list(self.warm[: max(1, pop // 2)]) + [{}]
+            while len(seeds) < pop:
+                seeds.append(self._sparse(rnd))
+            starts = [encode(g) for g in seeds[:pop]]
         try:
             model.solve(prob, mode="thread" if self.jobs > 1 else "single", n_workers=max(1, self.jobs),
                         termination=term, starting_solutions=starts, seed=self.seed)
@@ -292,7 +304,8 @@ class Exploration:
             if ok:
                 p = max(ok, key=lambda p: (p["saved"], -p["k"]))
                 frac = (p["error"] / limit) if (limit and p["error"] is not None) else None
-                eff = p["saved"] / max(frac, 1e-3) if frac is not None else p["saved"]
+                # LC saved per percent of the error budget used (floor 0.1 %: error-free rewrites stay finite)
+                eff = p["saved"] / max(100.0 * frac, 0.1) if frac is not None else p["saved"]
             used = [r["genome"][sid]["k"] for r in top if sid in r["genome"]]
             rows.append({"site": sid, "op": gene["op"], "kind": gene.get("kind"), "max_k": gene["max_k"],
                          "sweep": per,
@@ -302,7 +315,7 @@ class Exploration:
                          "in_top_pct": round(100.0 * len(used) / len(top), 1) if top else 0.0,
                          "mean_k_in_top": round(sum(used) / len(used), 2) if used else 0.0,
                          "k_in_best": (best["genome"].get(sid, {}).get("k", 0) if best and isinstance(best["genome"].get(sid), dict) else 0)})
-        rows.sort(key=lambda r: (-(r["efficiency"] or -1e9), r["site"]))
+        rows.sort(key=lambda r: (0 if r["k_in_best"] else 1, -(r["efficiency"] or -1e9), r["site"]))
         why = []
         if best:
             chosen = [r for r in rows if r["k_in_best"]]
