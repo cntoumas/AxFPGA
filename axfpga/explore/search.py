@@ -37,9 +37,10 @@ def _model(name: str, epochs: int):
     if name == "EliteSingleGA":
         return GA.EliteSingleGA(epoch=epochs, pop_size=POP_SIZE, pc=0.9, pm=0.1)
     if name == "OriginalSA":
-        return SA.OriginalSA(epoch=epochs, pop_size=2)
+        # step_size and perturbation_scale are absolute: mealpy's defaults (0.1, 0.05) never move an integer gene
+        return SA.OriginalSA(epoch=epochs, pop_size=2, step_size=1.0)
     if name == "OriginalTS":
-        return TS.OriginalTS(epoch=epochs, neighbour_size=POP_SIZE)
+        return TS.OriginalTS(epoch=epochs, neighbour_size=POP_SIZE, perturbation_scale=1.0)
     if name == "JADE":
         return DE.JADE(epoch=epochs, pop_size=POP_SIZE)
     if name == "OriginalACOR":
