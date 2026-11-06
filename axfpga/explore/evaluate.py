@@ -98,7 +98,8 @@ class ConeEvaluator:
         self.out_width = info["width"]
         self.fmt_kind = fmt["kind"] if fmt else ("s" if info.get("signed") else "u")
         self.fmt_width = fmt["width"] if fmt else info["width"]
-        self.inputs = [(n, i["width"]) for n, i in self.iface["inputs"].items()]
+        # inout ports (a cone can drive a bus it also reads) are connected once, as outputs
+        self.inputs = [(n, i["width"]) for n, i in self.iface["inputs"].items() if n not in self.iface["outputs"]]
         self.in_bits = sum(w for _, w in self.inputs)
         self.exhaustive = self.in_bits <= exhaustive_bits
         self.n_vectors = (1 << self.in_bits) if self.exhaustive else samples
