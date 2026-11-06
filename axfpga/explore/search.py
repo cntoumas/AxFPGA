@@ -20,7 +20,7 @@ from axfpga.explore.techniques import COMP_SET, Technique, genome_key
 
 logger = logging.getLogger("axfpga.explore")
 
-DEFAULT_ALGORITHM = "EliteSingleGA"
+DEFAULT_ALGORITHM = "OriginalTS"     # winner of the algorithm comparison (reports_cluster_explore_20261106_2000/algorithms)
 ALGORITHMS = ("EliteSingleGA", "OriginalSA", "OriginalTS", "JADE", "OriginalACOR", "random", "greedy")
 BUDGET_FE = 300
 BUDGET_S = 900
