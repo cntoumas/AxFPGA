@@ -77,7 +77,7 @@ def summarize(rows: List[Dict[str, Any]], out: Path) -> Dict[str, Any]:
     from scipy.stats import mannwhitneyu
 
     designs = sorted({r["design"] for r in rows})
-    algos = [a for a in ALGOS if any(r["algorithm"] == a for r in rows)]
+    algos = list(dict.fromkeys([a for a in ALGOS if any(r["algorithm"] == a for r in rows)] + sorted({r["algorithm"] for r in rows})))
     table = {}
     ranks: Dict[str, List[float]] = {a: [] for a in algos}
     for d in designs:

@@ -50,7 +50,30 @@ def _model(name: str, epochs: int):
         return DE.JADE(epoch=epochs, pop_size=POP_SIZE)
     if name == "OriginalACOR":
         return ACOR.OriginalACOR(epoch=epochs, pop_size=POP_SIZE, sample_count=POP_SIZE)
+    if name in EVOLUTIONARY:
+        import importlib
+        mod = importlib.import_module(f"mealpy.evolutionary_based.{EVOLUTIONARY[name][0]}")
+        cls = getattr(mod, EVOLUTIONARY[name][1])
+        return cls(epoch=epochs, pop_size=POP_SIZE, **EVOLUTIONARY[name][2])
     raise ValueError(f"unknown algorithm {name!r}")
+
+
+# Further evolutionary / genetic algorithms of mealpy (name -> (module, class, extra parameters)), compared in
+# reports_cluster_*/ga_family. Population size POP_SIZE; mealpy defaults otherwise.
+EVOLUTIONARY = {
+    "BaseGA": ("GA", "BaseGA", {"pc": 0.9, "pm": 0.1}),
+    "SingleGA": ("GA", "SingleGA", {"pc": 0.9, "pm": 0.1}),
+    "MultiGA": ("GA", "MultiGA", {"pc": 0.9, "pm": 0.1}),
+    "EliteMultiGA": ("GA", "EliteMultiGA", {"pc": 0.9, "pm": 0.1}),
+    "OriginalMA": ("MA", "OriginalMA", {"max_local_gens": 2}),
+    "OriginalES": ("ES", "OriginalES", {}),
+    "CMA_ES": ("ES", "CMA_ES", {}),
+    "OriginalEP": ("EP", "OriginalEP", {}),
+    "OriginalCRO": ("CRO", "OriginalCRO", {}),
+    "OriginalSHADE": ("SHADE", "OriginalSHADE", {}),
+    "L_SHADE": ("SHADE", "L_SHADE", {}),
+    "SADE": ("DE", "SADE", {}),
+}
 
 
 def pareto(points: Sequence[Tuple[float, float, Any]]) -> List[Tuple[float, float, Any]]:
