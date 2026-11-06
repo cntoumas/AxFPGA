@@ -131,7 +131,7 @@ def summarize(rows: List[Dict[str, Any]], out: Path) -> Dict[str, Any]:
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(1, len(designs), figsize=(3.4 * len(designs), 3.0), squeeze=False)
+        fig, axes = plt.subplots(1, len(designs), figsize=(3.4 * len(designs), 3.6), squeeze=False)
         for ax, d in zip(axes[0], designs):
             for a in algos:
                 rr = [r for r in rows if r["design"] == d and r["algorithm"] == a and r["convergence"]]
@@ -143,14 +143,17 @@ def summarize(rows: List[Dict[str, Any]], out: Path) -> Dict[str, Any]:
                     c = [x if x is not None else r["base_cost"] for x in r["convergence"]]
                     c = c + [c[-1]] * (L - len(c)) if c else [r["base_cost"]] * L
                     curves.append([100.0 * (r["base_cost"] - v) / r["base_cost"] for v in c])
-                mean = [statistics.mean(col) for col in zip(*curves)]
-                ax.plot(range(1, L + 1), mean, label=a, lw=1.2)
+                mean = [max(0.0, statistics.mean(col)) for col in zip(*curves)]
+                style = {"OriginalTS": dict(color="black", lw=2.2), "random": dict(color="grey", lw=1.4, ls="--")}.get(
+                    a, dict(color=plt.cm.tab20(algos.index(a) % 20), lw=1.1))
+                ax.plot(range(1, L + 1), mean, label=a, **style)
             ax.set_title(d, fontsize=9)
             ax.set_xlabel("evaluations", fontsize=8)
             ax.set_ylabel("cone cost saved (%)", fontsize=8)
             ax.grid(alpha=0.3)
-        axes[0][0].legend(fontsize=6, frameon=False)
-        fig.tight_layout()
+        handles, labels = axes[0][0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="lower center", ncol=min(8, len(labels)), fontsize=7, frameon=False)
+        fig.tight_layout(rect=(0, 0.12, 1, 1))
         fig.savefig(out / "convergence.png", dpi=150)
     except Exception as exc:
         print("plot failed:", exc)

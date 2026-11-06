@@ -134,7 +134,7 @@ def fig_vs_baseline(rows: List[Dict[str, Any]], base: Dict[str, Dict[str, Any]],
     return "vs_tournament.png"
 
 
-def build(run: Path, out: Path, baseline: Optional[Path], algos: Optional[Path]) -> None:
+def build(run: Path, out: Path, baseline: Optional[Path], algos: Optional[Path], ga_family: Optional[Path] = None) -> None:
     results = json.loads((run / "results.json").read_text())
     rows = [fr.flatten(r) for r in results]
     byid = {r["id"]: r for r in results}
@@ -304,6 +304,16 @@ def build(run: Path, out: Path, baseline: Optional[Path], algos: Optional[Path])
         md += ["## 6. Search-algorithm comparison", "", algo_md.replace("# Search-algorithm comparison", "").strip(), ""]
         if algo_fig:
             md += [f"![Convergence](figures/{algo_fig})", ""]
+    if ga_family and (ga_family / "summary.md").exists():
+        md += ["### 6b. Evolutionary and genetic algorithms of mealpy", "",
+               "Same protocol (4 designs, truncation technique, 5 seeds, 200 evaluations), with the GA variants (BaseGA, SingleGA, "
+               "MultiGA, EliteSingleGA, EliteMultiGA), the memetic algorithm (MA), evolution strategies (ES, CMA-ES), evolutionary "
+               "programming (EP), coral-reef optimization (CRO) and adaptive differential evolution (SHADE, L-SHADE, SADE), "
+               "against tabu search and random search.", "",
+               (ga_family / "summary.md").read_text().replace("# Search-algorithm comparison", "").strip(), ""]
+        if (ga_family / "convergence.png").exists():
+            shutil.copy(ga_family / "convergence.png", figs / "ga_family_convergence.png")
+            md += ["![Convergence, evolutionary family](figures/ga_family_convergence.png)", ""]
     if base:
         md += ["## 7. Comparison with the fixed candidate menu (previous Tournament run)", ""]
         body = []
@@ -323,5 +333,7 @@ if __name__ == "__main__":
     ap.add_argument("--out", required=True)
     ap.add_argument("--baseline", default=None)
     ap.add_argument("--algos", default=None)
+    ap.add_argument("--ga-family", default=None, help="second comparison: mealpy evolutionary / genetic family")
     a = ap.parse_args()
-    build(Path(a.run), Path(a.out), Path(a.baseline) if a.baseline else None, Path(a.algos) if a.algos else None)
+    build(Path(a.run), Path(a.out), Path(a.baseline) if a.baseline else None, Path(a.algos) if a.algos else None,
+          Path(a.ga_family) if a.ga_family else None)
