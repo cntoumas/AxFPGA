@@ -66,6 +66,8 @@ def run_design(job: Dict[str, Any]) -> List[Dict[str, Any]]:
                          "hypervolume": s["hypervolume"], "evals_to_95pct": s["evals_to_95pct"],
                          "evaluations": s["evaluations"], "dims": s["dims"], "time_s": round(time.time() - t0, 1),
                          "convergence": s["convergence"], "best_genome": s["best"]["describe"] if s["best"] else None})
+            with open(Path(job["work"]).parent.parent / "runs_partial.jsonl", "a") as fh:
+                fh.write(json.dumps(rows[-1]) + "\n")
             print(f"{job['design']:20} {algo:14} seed {seed}: best {best} (base {ev.base_cost}) hv {s['hypervolume']:.4f} "
                   f"evals {s['evaluations']} {time.time() - t0:.0f}s", flush=True)
     return rows
@@ -132,7 +134,9 @@ def summarize(rows: List[Dict[str, Any]], out: Path) -> Dict[str, Any]:
         fig, axes = plt.subplots(1, len(designs), figsize=(3.4 * len(designs), 3.0), squeeze=False)
         for ax, d in zip(axes[0], designs):
             for a in algos:
-                rr = [r for r in rows if r["design"] == d and r["algorithm"] == a]
+                rr = [r for r in rows if r["design"] == d and r["algorithm"] == a and r["convergence"]]
+                if not rr:
+                    continue
                 L = max(len(r["convergence"]) for r in rr)
                 curves = []
                 for r in rr:
@@ -167,10 +171,25 @@ def main() -> None:
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--parallel", type=int, default=4)
     ap.add_argument("--summarize-only", action="store_true")
+    ap.add_argument("--from-log", default=None, help="rebuild runs.json from the per-run lines of a log (no convergence curves)")
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
-    if a.summarize_only:
+    if a.from_log:
+        import re
+        pat = re.compile(r"^(\S+)\s+(\S+)\s+seed (\d+): best (\S+) \(base (\S+)\) hv (\S+) evals (\d+) (\d+)s")
+        rows = []
+        for ln in Path(a.from_log).read_text().splitlines():
+            m = pat.match(ln.strip())
+            if not m:
+                continue
+            d, algo, seed, best, base, hv, ev, t = m.groups()
+            best, base = float(best), float(base)
+            rows.append({"design": d, "algorithm": algo, "seed": int(seed), "base_cost": base, "best_cost": best,
+                         "saving_pct": 100.0 * (base - best) / base, "hypervolume": float(hv), "evals_to_95pct": None,
+                         "evaluations": int(ev), "time_s": float(t), "convergence": [], "best_genome": None})
+        (out / "runs.json").write_text(json.dumps(rows, indent=1))
+    elif a.summarize_only:
         rows = json.loads((out / "runs.json").read_text())
     else:
         res = {r["id"]: r for r in json.loads(Path(a.run_results).read_text())}

@@ -27,6 +27,11 @@ BUDGET_S = 900
 EARLY_STOP = 30
 POP_SIZE = 12
 SWEEP_LIMIT = 48
+WATCHDOG_GRACE_S = 120
+
+
+class _Abort(Exception):
+    """Raised inside the objective once the watchdog has abandoned a search."""
 
 
 def _model(name: str, epochs: int):
@@ -86,6 +91,8 @@ class Exploration:
         self.calls = 0
         self.t0 = 0.0
         self.best_trace: List[Tuple[int, float]] = []
+        self._abort = False
+        self.stalled = False
 
     # -------------------------------------------------------------- evaluation of one genome
     def evaluate(self, genome: Dict[str, Any], phase: str = "search") -> Dict[str, Any]:
@@ -211,6 +218,8 @@ class Exploration:
                 super().__init__(bounds, minmax="min", log_to=None)
 
             def obj_func(self, x):
+                if ev._abort or (time.time() - ev.t0) > ev.budget_s + WATCHDOG_GRACE_S:
+                    raise _Abort()
                 d = self.decode_solution(x)
                 g = tech.vector_to_genome([int(v) for v in np.atleast_1d(d["k"])], list(d["c"]) if n_comp else None)
                 return ev.evaluate(g, "search")["fitness"]
@@ -235,13 +244,37 @@ class Exploration:
             while len(seeds) < pop:
                 seeds.append(self._sparse(rnd))
             starts = [encode(g) for g in seeds[:pop]]
-        try:
-            model.solve(prob, mode="thread" if self.jobs > 1 else "single", n_workers=max(1, self.jobs),
-                        termination=term, starting_solutions=starts, seed=self.seed)
-        except Exception as exc:
-            logger.warning("%s in thread mode failed (%s); running single", self.algorithm, exc)
-            model.solve(prob, mode="single", termination=term, starting_solutions=starts, seed=self.seed)
-        self.history = list(getattr(model.history, "list_global_best_fit", []))
+        # Watchdog: mealpy's own termination is checked per epoch, and some algorithms can loop inside an epoch
+        # without evaluating anything (seen with EliteSingleGA once every genome is memoized). The solve runs in a
+        # daemon thread; past the time budget (+ grace) the search is abandoned and the archive so far is used.
+        err: List[BaseException] = []
+
+        def solve() -> None:
+            try:
+                try:
+                    model.solve(prob, mode="thread" if self.jobs > 1 else "single", n_workers=max(1, self.jobs),
+                                termination=term, starting_solutions=starts, seed=self.seed)
+                except _Abort:
+                    raise
+                except Exception as exc:
+                    logger.warning("%s in thread mode failed (%s); running single", self.algorithm, exc)
+                    model.solve(prob, mode="single", termination=term, starting_solutions=starts, seed=self.seed)
+            except _Abort:
+                pass
+            except BaseException as exc:      # reported, never raised into the pipeline
+                err.append(exc)
+
+        th = threading.Thread(target=solve, daemon=True)
+        th.start()
+        th.join(self.budget_s + WATCHDOG_GRACE_S)
+        if th.is_alive():
+            self._abort = True
+            self.stalled = True
+            logger.warning("%s exceeded its time budget by %ds without returning; search abandoned (archive kept)",
+                           self.algorithm, WATCHDOG_GRACE_S)
+        elif err:
+            logger.warning("%s failed: %s", self.algorithm, err[0])
+        self.history = list(getattr(getattr(model, "history", None), "list_global_best_fit", []) or [])
 
     # -------------------------------------------------------------- run
     def run(self) -> Dict[str, Any]:
@@ -355,7 +388,7 @@ class Exploration:
         return {
             "technique": self.tech.name, "description": self.tech.description, "level": self.tech.level,
             "strategy": strategy, "algorithm": self.algorithm if strategy == self.algorithm else strategy,
-            "seed": self.seed, "space_size": size if size < 10 ** 15 else float(size), "dims": self.tech.dims(),
+            "seed": self.seed, "stalled": self.stalled, "space_size": size if size < 10 ** 15 else float(size), "dims": self.tech.dims(),
             "evaluations": len(self.archive), "calls": self.calls, "time_s": round(elapsed, 1),
             "base_cost": self.ev.base_cost, "best": slim(best),
             "feasible_points": len(feas), "front": [slim(r) for r in front], "hypervolume": round(hv, 5),
