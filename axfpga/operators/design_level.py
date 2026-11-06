@@ -34,7 +34,11 @@ def run(spec: Dict[str, Any]) -> Dict[str, Any]:
             present = {sid for sid, _, _ in _site_cells(module)}
             sites = [s for s in allowed if s in present]
             result["missing"] = sorted(set(allowed) - present)
-            genome = {s: {"k": int(g["k"]), "comp": g.get("comp", "zero")} for s in sites}
+            if "sites" in g:          # per-site genome {site id: {"k", "comp"}} (design-space exploration)
+                genome = {s: {"k": int(v["k"]), "comp": v.get("comp", "zero")} for s, v in g["sites"].items()
+                          if s in present and int(v.get("k", 0)) > 0}
+            else:
+                genome = {s: {"k": int(g["k"]), "comp": g.get("comp", "zero")} for s in sites}
             result["applied"][name] = len(apply_genome(module, genome, None))
             path = os.path.join(spec["out_dir"], f"design_{name}.v")
             ys.run_pass(f"opt_clean -purge; clean; write_verilog -noattr {path}", ex.design)

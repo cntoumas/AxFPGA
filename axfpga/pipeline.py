@@ -46,6 +46,10 @@ from axfpga.certification import certification_record
 from axfpga import cache
 from axfpga.config import yosys_cmd
 from axfpga.estimator import FpgaEstimator
+from axfpga.explore.design import DesignEvaluator
+from axfpga.explore.evaluate import LOWER_METRICS, ConeEvaluator, error_metrics
+from axfpga.explore.stage import algorithm_from_env, cone_techniques, explore, techniques_from_env
+from axfpga.explore.techniques import PpgDesignTechnique, RegTechnique
 from axfpga.operators import OperatorGenerator
 from axfpga.operators.design_level import run_design_level
 from axfpga.parallel import Cancelled, depth_search, first_accepted, yosys_serialized
@@ -359,6 +363,7 @@ def _util(res: Dict[str, Any], power: Dict[str, Any]) -> Dict[str, Any]:
         "bram_util_pct": res.get("bram_utilization_pct", 0.0),
         "dynamic_power_mw": power["dynamic_power_mw"],
         "power_breakdown": power["breakdown"],
+        "primitives": dict(res.get("cells_by_type") or {}),
     }
 
 
@@ -614,7 +619,19 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     # speculatively. The visited depths and the choice are identical to the serial search.
     exact_code = exact_top_v.read_text(encoding="utf-8", errors="ignore")
     ppgs = PpgPruner.detect_ppg_modules(exact_code)
-    if ppgs:
+    meta_mode = os.environ.get("AXFPGA_SEARCH", "meta").strip().lower() != "tournament"
+    exploration: Optional[Dict[str, Any]] = None
+    tr = meta.get("through_registers") if through else None
+    if meta_mode:
+        accepted, fallback_reason, exploration = _explore_stage(
+            bench=bench, bench_work=bench_work, exact_top_v=exact_top_v, exact_code=exact_code, ppgs=ppgs, tr=tr,
+            annotated_files=annotated_files, top_mod=top_mod, cone_v=cone_v, shell_v=shell_v, cone_meta=cone_meta,
+            has_safe_cone=has_safe_cone, quality=quality, estimator=estimator,
+            cone_estimator=tournament_estimator or FpgaEstimator(family="xc7", device=FPGA_DEVICE,
+                                                                 nodsp=getattr(estimator, "nodsp", False)),
+            exact_res=exact_res, evaluator=evaluator, sim_kw=sim_kw, skip=skip, inner_jobs=inner_jobs,
+            assess=assess, finalize=finalize, attempts=attempts, approx_cone_v=approx_cone_v)
+    if ppgs and not meta_mode:
         ppg_dir = bench_work / "ppg"
         ppg_dir.mkdir(parents=True, exist_ok=True)
         pruner = PpgPruner(work_dir=ppg_dir)
@@ -665,7 +682,9 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
 
     # Stage 3b: pyALS Candidate Tournament on the extracted Cone
     tournament_rec: Optional[Dict[str, Any]] = None
-    if accepted is None and not has_safe_cone:
+    if meta_mode:
+        pass
+    elif accepted is None and not has_safe_cone:
         logger.warning("No safe cells extracted for %s (status: %s)", top_mod, meta.get("status"))
         fallback_reason = "no safe cone extracted" + (" and no in-budget PPG depth with savings" if ppgs else "")
     elif accepted is None:
@@ -748,11 +767,10 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     # Candidates are evaluated like the PPG depths: application-stream limits, held-out gate, control proof; no WCE proof,
     # because the error behind a register accumulates across cycles (sequential bounds are Phase 6).
     reg_info: Optional[Dict[str, Any]] = None
-    tr = meta.get("through_registers") if through else None
     if tr is not None:
         reg_info = {"relaxed_registers": tr["num_registers_relaxed"], "arithmetic_sites": len(tr["sites"]),
                     "sites_behind_registers": len(tr["sites_behind_registers"]), "tried": 0, "accepted": None}
-    if tr and tr["sites_behind_registers"]:
+    if tr and tr["sites_behind_registers"] and not meta_mode:
         reg_dir = bench_work / "behind_registers"
         menu = {f"k{k}_{c}": {"k": k, "comp": c} for k in REG_KS for c in ("zero", "mid")}
         logger.info("[Stage 3c] Truncation behind registers: %d arithmetic site(s) (%d behind a register), %d candidates",
@@ -827,6 +845,17 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         q_recs = accepted["quality"]
     app["note"] = ctx.get("note", "")
     app["samples"] = len(vectors)
+    errors_full: Optional[Dict[str, Any]] = None
+    try:
+        from axfpga.quality.metrics import decoded as _decoded
+        a_rows = exact_sim["outputs"] if fell_back else (accepted.get("sim_out") or exact_sim["outputs"])
+        n_rows = min(len(exact_sim["outputs"]), len(a_rows))
+        e_col = _decoded(evaluator.fmt, exact_sim["outputs"], bench["relax_wire"], skip, n_rows)
+        a_col = _decoded(evaluator.fmt, a_rows, bench["relax_wire"], skip, n_rows)
+        errors_full = error_metrics(e_col, a_col, int(getattr(evaluator.fmt, "width", 0) or 0))
+        errors_full["domain"] = "application stream, relaxed output decoded in its number format"
+    except Exception as exc:
+        logger.warning("full error metrics unavailable: %s", exc)
 
     # Stage 7b: held-out stream, evaluated on the accepted design and reported. It is used only as an acceptance gate
     # for PPG-pruned designs (Stage 3a), never for the search.
@@ -834,6 +863,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     heldout_reason: Optional[str] = None
     if fell_back:
         heldout_reason = "exact design kept; nothing to evaluate"
+    elif meta_mode:
+        heldout_reason = "not evaluated (design-space exploration mode)"
     elif not hasattr(evaluator, "build_heldout"):
         heldout_reason = "evaluator provides no held-out stream"
     else:
@@ -876,7 +907,7 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         "top": top_mod,
         "device": part,
         "dsp_inference": not getattr(estimator, "nodsp", False),
-        "engine": "pyALS Candidate Tournament",
+        "engine": "design-space exploration (mealpy)" if meta_mode else "pyALS Candidate Tournament",
         "method": method,
         "fell_back": fell_back,
         "fallback_reason": fallback_reason,
@@ -902,11 +933,140 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         "heldout": heldout,
         "heldout_reason": heldout_reason,
         "tournament": tournament_rec,
+        "exploration": exploration,
+        "errors_full": errors_full,
         "through_registers": reg_info,
         "attempts": attempts,
         "app": app,
         "power_model": {k: exact_pwr[k] for k in ("method", "f_clk_mhz", "energy_pj")} | {"cycles": exact_pwr["cycles"]},
     }
+
+
+EXPLORE_TRIES = 5          # archive points tried per technique when the synthesized design fails a check (app metric)
+NO_PROOF = "N/A (design-space exploration: no proofs run)"
+
+
+def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, annotated_files, top_mod, cone_v, shell_v,
+                   cone_meta, has_safe_cone, quality, estimator, cone_estimator, exact_res, evaluator, sim_kw, skip,
+                   inner_jobs, assess, finalize, attempts, approx_cone_v):
+    """Design-space exploration of C_safe, one search per technique, then the synthesized check of each technique's
+    best points (full synthesis, control sanity simulation, application stream and metric). Winner: lowest cost among
+    the techniques whose design passed. If none passed: one re-search with the error limits halved, then exact."""
+    ex_dir = bench_work / "explore"
+    algorithm = algorithm_from_env()
+    only = techniques_from_env()
+    primary = "med" if str(bench["metric"]).upper() == "MED" else "wce"
+    limits = {c.metric: c.threshold for c in quality.constraints if c.metric in LOWER_METRICS and c.op in ("<=", "<")}
+    exact_cost = exact_res["estimated_lcs"] + DSP_LC_WEIGHT * exact_res["dsps"]
+    info: Dict[str, Any] = {"algorithm": algorithm, "primary_metric": primary, "limits": limits, "techniques": [],
+                            "winner": None, "re_search": False, "base_cost": exact_cost}
+
+    def build(lim: Dict[str, float], tag: str) -> Tuple[List[Any], Dict[str, Any]]:
+        evaluators: Dict[str, Any] = {}
+        techs: List[Any] = []
+        if has_safe_cone:
+            try:
+                cev = ConeEvaluator(cone_v, cone_meta, ex_dir / tag / "cone", cone_estimator, lim)
+                evaluators["cone"] = cev
+                techs += cone_techniques(cev, cone_v, cone_meta, ex_dir / tag, float(bench["bound"]), only)
+            except Exception as exc:
+                logger.warning("cone exploration unavailable: %s", exc)
+        want = (lambda n: only is None or n in only)
+        reg_sites = list(tr["sites"]) if (tr and tr.get("sites_behind_registers")) else []
+        if (ppgs and want("ppg_design")) or (reg_sites and want("trunc_reg")):
+            try:
+                dev = DesignEvaluator(exact_top_v, top_mod, ex_dir / tag / "design", estimator, lim,
+                                      dict(sim_kw), evaluator.fmt, bench["relax_wire"], skip,
+                                      lambda src, out: _normalize_rtl(src, top_mod, out), exact_res)
+                evaluators["design"] = dev
+                if ppgs and want("ppg_design"):
+                    k_max = max(i + j for i, j in ppgs) + 1
+                    techs.append(PpgDesignTechnique(exact_code, k_max, PpgPruner(work_dir=ex_dir / tag / "ppg")))
+                if reg_sites and want("trunc_reg"):
+                    techs.append(RegTechnique([str(f) for f in annotated_files], top_mod, reg_sites))
+            except Exception as exc:
+                logger.warning("design-level exploration unavailable: %s", exc)
+        return techs, evaluators
+
+    def check(summaries: List[Dict[str, Any]], tag: str) -> List[Dict[str, Any]]:
+        """Synthesize and check the best points of every technique (in parallel over techniques)."""
+        cdir = bench_work / "explore_check" / tag
+
+        def one(s: Dict[str, Any]) -> Dict[str, Any]:
+            res = {"technique": s["technique"], "tries": 0, "passed": False, "rec": None, "reasons": []}
+            for i, row in enumerate([r for r in s["ranked"] if r["cost"] is not None and r["cost"] < s["base_cost"]][:EXPLORE_TRIES]):
+                res["tries"] += 1
+                adir = cdir / f"{s['technique']}_{i}"
+                adir.mkdir(parents=True, exist_ok=True)
+                label = f"{s['technique']}: {row['describe']}"[:160]
+                if s["level"] == "cone":
+                    cone_a, top_a = adir / "approx_cone.v", adir / "final_top.v"
+                    shutil.copy(row["path"], cone_a)
+                    try:
+                        _reintegrate(bench, adir, shell_v, cone_v, cone_a, top_a)
+                    except Exception as exc:
+                        res["reasons"].append(f"reintegration failed: {exc}"[:200])
+                        continue
+                else:
+                    cone_a, top_a = None, Path(row["path"])
+                map_v, map_j = adir / "approx_mapped.v", adir / "approx_mapped.json"
+                try:
+                    rec = assess(top_a, label, "explore", map_v, map_j, need_savings_first=True,
+                                 cancel=threading.Event(), key=f"x_{tag}_{s['technique']}_{i}")
+                except Exception as exc:
+                    res["reasons"].append(f"check failed: {exc}"[:200])
+                    continue
+                rec.update(technique=s["technique"], search_cost=row["cost"], genome=row["genome"],
+                           _paths=(top_a, map_v, map_j, cone_a))
+                attempts.append(rec)
+                if rec.get("outcome") == "passed checks":
+                    res.update(passed=True, rec=rec)
+                    break
+                res["reasons"].append(rec.get("reason", "rejected"))
+            return res
+
+        with ThreadPoolExecutor(max_workers=max(1, min(inner_jobs, 4))) as pool:
+            return list(pool.map(one, summaries))
+
+    techs, evs = build(limits, "main")
+    logger.info("[Explore] %d technique(s): %s | algorithm %s | limits %s", len(techs), ", ".join(t.name for t in techs),
+                algorithm, limits)
+    summaries = explore(techs, evs, ex_dir / "main", algorithm, inner_jobs, primary)
+    checks = check(summaries, "main")
+    if not any(c["passed"] for c in checks) and any(s["best"] for s in summaries):
+        half = {k: v / 2.0 for k, v in limits.items()}
+        logger.info("[Explore] no synthesized point passed every check: re-search with halved limits %s", half)
+        info["re_search"] = True
+        techs2, evs2 = build(half, "half")
+        keep = {s["technique"] for s in summaries if s["best"]}
+        summaries2 = explore([t for t in techs2 if t.name in keep], evs2, ex_dir / "half", algorithm, inner_jobs, primary)
+        checks2 = check(summaries2, "half")
+        for s in summaries2:
+            s["technique_run"] = "half-limit re-search"
+        summaries, checks = summaries + summaries2, checks + checks2
+    by_tech = {c["technique"]: c for c in checks}
+    for s in summaries:
+        c = by_tech.get(s["technique"]) or {}
+        rec = c.get("rec")
+        s["synthesized"] = None if rec is None else {
+            "candidate": rec["candidate"], "lcs": rec["lcs"], "luts": rec["luts"],
+            "ffs": rec["_res"]["ffs"], "dsps": rec["_res"]["dsps"], "carry4": rec["_res"]["carry4"],
+            "cost": rec["lcs"] + DSP_LC_WEIGHT * rec["_res"]["dsps"], "wce": rec.get("wce"), "med": rec.get("med"),
+            "mred_pct": rec.get("mred_pct"), "app_value": rec.get("app_value")}
+        s["check"] = {"tries": c.get("tries", 0), "passed": c.get("passed", False), "reasons": c.get("reasons", [])[:5]}
+        info["techniques"].append(s)
+    passed = [c["rec"] for c in checks if c["passed"]]
+    if not passed:
+        reason = ("no technique found a feasible point with savings" if not any(s["best"] for s in summaries)
+                  else "no synthesized point passed the full-design checks (see exploration)")
+        return None, reason, info
+    win = min(passed, key=lambda r: (r["lcs"] + DSP_LC_WEIGHT * r["_res"]["dsps"], r.get("wce") or 0, r["candidate"]))
+    top_a, map_v, map_j, cone_a = win["_paths"]
+    if cone_a is not None:
+        shutil.copy(cone_a, approx_cone_v)
+    info["winner"] = {"technique": win["technique"], "candidate": win["candidate"], "genome": win.get("genome")}
+    acc = finalize(win, top_a, map_v, map_j, NO_PROOF, NO_PROOF)
+    return acc, None, info
 
 
 def _ladder(alts: List[Any], limit: int) -> Tuple[List[Any], List[List[Any]]]:
