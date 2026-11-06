@@ -265,32 +265,6 @@ def _rec(bid, dsps, luts, lc, saved, nodsp):
     return {"id": bid, "name": bid, "exact": u, "approx": dict(u, logic_cells=lc - 1), "savings_pct": {"logic_cells": saved},
             "formal": {"control_equivalence": "PROVEN", "wce_bound": "PROVEN"}, "fell_back": False,
             "certification": {"tier": "certified"}, "dsp_inference": not nodsp}
-
-
-def test_dsp_comparison_gate_checks(tmp_path, suite):
-    on = [_rec("multiplier_16b_bhv", 1, 10, 10, 5.0, False), _rec("iir_biquad", 5, 100, 120, 1.0, False),
-          _rec("neural_network_bhv", 0, 300, 300, 0.0, False)]
-    off = [_rec("multiplier_16b_bhv", 0, 300, 320, 5.0, True), _rec("iir_biquad", 0, 900, 950, 1.0, True)]
-    fails = suite.export_dsp_comparison(on, off, tmp_path)
-    assert any(f.startswith("neural_network_bhv: no result with DSP inference off") for f in fails)
-    assert any("neural_network_bhv" in f for f in fails)
-    assert not any(f.startswith("multiplier_16b_bhv") or f.startswith("iir_biquad") for f in fails)
-    md = (tmp_path / "dsp_comparison.md").read_text()
-    assert "FAIL" in md and "| 1 -> 1 |" in md
-    off[0]["exact"]["dsps"] = 2
-    on.pop()
-    fails = suite.export_dsp_comparison(on, off, tmp_path)
-    assert fails == ["multiplier_16b_bhv: 2 DSP48E1 with DSP inference off"]
-
-
-def test_dsp_runs_layout(suite, tmp_path):
-    assert suite._dsp_runs("on", tmp_path / "o", tmp_path / "b") == [(False, tmp_path / "o", tmp_path / "b")]
-    assert suite._dsp_runs("off", tmp_path / "o", tmp_path / "b") == [(True, tmp_path / "o", tmp_path / "b")]
-    assert suite._dsp_runs("both", tmp_path / "o", tmp_path / "b") == [
-        (False, tmp_path / "o" / "dsp_on", tmp_path / "b" / "dsp_on"),
-        (True, tmp_path / "o" / "dsp_off", tmp_path / "b" / "dsp_off")]
-
-
 def test_estimator_device_fields_follow_the_estimator():
     from axfpga.estimator import FpgaEstimator
     res = {"total_luts": 17600, "ffs": 3520, "dsps": 8, "ramb36": 6, "ramb18": 0, "device": "xc7z010",

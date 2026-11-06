@@ -27,26 +27,6 @@ def short(name: str) -> str:
     return name.replace("(behavioural *)", "bhv").replace("Layer", "").replace("Filter", "").strip()
 
 
-def fig_savings():
-    """Phase 4 vs Phase 5 LC saved, DSP off, per design."""
-    p4 = {r["id"]: r for r in csv.DictReader(open(ROOT / "docs/phases/phase-4/dsp_comparison.csv"))}
-    rows = []
-    for r in json.load(open(ROOT / "reports/phase5/dsp_off/results.json")):
-        rows.append((short(r["name"]), float(p4[r["id"]]["off_lc_saved_pct"]), r["savings_pct"]["logic_cells"],
-                     r["certification"]["tier"]))
-    rows = [x for x in rows if x[1] or x[2]]
-    rows.sort(key=lambda x: -x[2])
-    y = np.arange(len(rows))
-    fig, ax = plt.subplots(figsize=(8, 0.42 * len(rows) + 1.2))
-    ax.barh(y - 0.2, [x[1] for x in rows], 0.38, color=BASE, label="Phase 4")
-    cols = [A1 if x[3] == "certified" else A2 for x in rows]
-    ax.barh(y + 0.2, [x[2] for x in rows], 0.38, color=cols, label="Phase 5 (blue certified, orange uncertified)")
-    ax.set_yticks(y, [x[0] for x in rows]); ax.invert_yaxis()
-    ax.set_xlabel("Logic cells saved (%)"); ax.set_title("Logic cells saved per design, DSP inference off")
-    ax.grid(axis="x", color=GRID, lw=0.6); ax.set_axisbelow(True); ax.legend(frameon=False, loc="lower right")
-    fig.tight_layout(); fig.savefig(OUT / "savings_dsp_off.png", dpi=150); plt.close(fig)
-
-
 def fig_savings_on():
     """Phase 4 vs Phase 5 LC saved, DSP on, per design."""
     p4 = {r["id"]: r for r in csv.DictReader(open(ROOT / "docs/phases/phase-4/dsp_comparison.csv"))}
@@ -138,5 +118,5 @@ def fig_rg():
 
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
-    fig_savings(); fig_savings_on(); fig_ablation(); fig_limiters(); fig_rg()
+    fig_savings_on(); fig_ablation(); fig_limiters(); fig_rg()
     print("wrote", sorted(p.name for p in OUT.glob("*.png")))

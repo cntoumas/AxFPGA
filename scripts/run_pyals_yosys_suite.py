@@ -6,7 +6,7 @@ variants of the AxBench multiplier designs and four larger designs written for t
 Designs larger than the xc7z010 are evaluated on the xc7z020 and labelled with its part.
 
 Per benchmark:
-1. Yosys synth_xilinx of the exact design (DSP inference on, or off with --dsp off; --dsp both runs the suite twice).
+1. Yosys synth_xilinx of the exact design (DSP inference always on).
 2. (* axc_relax *)/(* axc_precise *) annotation and safe Cone extraction.
 3. pyALS Candidate Tournament on the Cone; reintegration into the top.
 4. Yosys synth_xilinx of the approximate design.
@@ -16,9 +16,7 @@ Per benchmark:
    exact vs approximate RTL; the same attributes give the format and every constraint. Held-out stream reported.
 7. Activity-based dynamic power (axfpga/activity_power.py) of both mapped netlists.
 
-Outputs (in --out-dir, default reports/): results.json, results.csv, report.md. With --dsp both: the same in
-<out-dir>/dsp_on and <out-dir>/dsp_off (build directories <build-dir>/dsp_on and <build-dir>/dsp_off), plus
-<out-dir>/dsp_comparison.md and dsp_comparison.csv.
+Outputs (in --out-dir, default reports/): results.json, results.csv, report.md.
 """
 
 from __future__ import annotations
@@ -586,62 +584,6 @@ def export_results(results: List[Dict[str, Any]], out_dir: Path) -> None:
     logger.info("Wrote %s, %s, %s", json_path, csv_path, md_path)
 
 
-def export_dsp_comparison(on: List[Dict[str, Any]], off: List[Dict[str, Any]], out_dir: Path) -> List[str]:
-    """dsp_comparison.md / .csv: every design with DSP inference on and off, side by side (Phase 4).
-
-    Returns the gate failures: designs missing in one of the runs, and behavioural-multiplier variants (id ending in
-    _bhv) whose exact design infers no DSP48E1 with DSP inference on.
-    """
-    out_dir.mkdir(parents=True, exist_ok=True)
-    on_by, off_by = {r["id"]: r for r in on}, {r["id"]: r for r in off}
-    order = [b["id"] for b in define_benchmark_suite()]
-    ids = sorted(set(on_by) | set(off_by), key=lambda i: order.index(i) if i in order else 99)
-    failures: List[str] = []
-    rows: List[List[Any]] = []
-    md = ["# DSP inference on vs off", "",
-          "Same designs, same flow; only `synth_xilinx -nodsp` differs. LC = LUT + 2 x CARRY4. "
-          "DSP = DSP48E1 count. Cells: exact -> approximate.", "",
-          "| Benchmark | DSP (on) | LUT (on) | LC (on) | LC saved (on) | Tier (on) | LUT (off) | LC (off) | LC saved (off) | Tier (off) |",
-          "|:--|--:|--:|--:|--:|:--|--:|--:|--:|:--|"]
-
-    def part(r: Optional[Dict[str, Any]]) -> Tuple[List[Any], List[str]]:
-        if r is None:
-            return [None] * 7, ["missing"] * 4
-        e, a, s = r["exact"], r["approx"], r["savings_pct"]
-        vals = [e["dsps"], a["dsps"], e["luts"], a["luts"], e["logic_cells"], a["logic_cells"], s["logic_cells"]]
-        cells = [f"{e['luts']} -> {a['luts']}", f"{e['logic_cells']} -> {a['logic_cells']}", f"{s['logic_cells']:.1f}%",
-                 result_tier(r).value]
-        return vals, cells
-
-    for i in ids:
-        r_on, r_off = on_by.get(i), off_by.get(i)
-        name = (r_on or r_off)["name"]
-        v_on, c_on = part(r_on)
-        v_off, c_off = part(r_off)
-        dsp_cell = "missing" if r_on is None else f"{v_on[0]} -> {v_on[1]}"
-        md.append(f"| {name} | {dsp_cell} | {' | '.join(c_on)} | {' | '.join(c_off[:3])} | {c_off[3]} |")
-        rows.append([i, name, *v_on, *v_off[2:]])
-        if r_on is None or r_off is None:
-            failures.append(f"{i}: no result with DSP inference {'on' if r_on is None else 'off'}")
-        elif i.endswith("_bhv") and r_on["exact"]["dsps"] == 0:
-            failures.append(f"{i}: behavioural variant infers no DSP48E1 with DSP inference on")
-        if r_off is not None and r_off["exact"]["dsps"] != 0:
-            failures.append(f"{i}: {r_off['exact']['dsps']} DSP48E1 with DSP inference off")
-    md += ["", "## Gate checks", ""]
-    md += [f"- FAIL: {f}" for f in failures] or ["- PASS: every design has both runs; every `_bhv` variant infers "
-                                                 "DSP48E1 blocks with DSP inference on; no design uses DSP48E1 with "
-                                                 "DSP inference off."]
-    (out_dir / "dsp_comparison.md").write_text("\n".join(md) + "\n")
-    with open(out_dir / "dsp_comparison.csv", "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(["id", "name", "on_exact_dsps", "on_approx_dsps", "on_exact_luts", "on_approx_luts", "on_exact_lc",
-                    "on_approx_lc", "on_lc_saved_pct", "off_exact_luts", "off_approx_luts", "off_exact_lc",
-                    "off_approx_lc", "off_lc_saved_pct"])
-        w.writerows(rows)
-    logger.info("Wrote %s (%d gate failure(s))", out_dir / "dsp_comparison.md", len(failures))
-    return failures
-
-
 def _mem_available_gb() -> float:
     try:
         for line in Path("/proc/meminfo").read_text().splitlines():
@@ -756,13 +698,6 @@ def run_suite(suite: List[Dict[str, Any]], out_dir: Path, jobs: int, inner_jobs:
     return failed
 
 
-def _dsp_runs(mode: str, out_dir: Path, build_dir: Path) -> List[Tuple[bool, Path, Path]]:
-    """(nodsp, out dir, build dir) per suite run: one run for --dsp on/off, two subdirectories for --dsp both."""
-    if mode == "both":
-        return [(False, out_dir / "dsp_on", build_dir / "dsp_on"), (True, out_dir / "dsp_off", build_dir / "dsp_off")]
-    return [(mode == "off", out_dir, build_dir)]
-
-
 def select_suite(benchmarks: Optional[List[str]], group: str) -> List[Dict[str, Any]]:
     """Designs of one run: the -b ids (or tops) if given, else the group without the EXCLUDED designs."""
     suite = define_benchmark_suite()
@@ -784,10 +719,6 @@ def main():
                         help="Designs run when no -b is given: the AxBench designs, the Phase-4 designs, or all (default)")
     parser.add_argument("--out-dir", "-o", default=str(REPORTS_DIR), help="Directory for results.json/csv and report.md")
     parser.add_argument("--build-dir", default=str(BUILD_DIR), help="Working directory for per-benchmark artifacts")
-    parser.add_argument("--dsp", choices=("on", "off", "both"), default="on",
-                        help="DSP48E1 inference: on (default), off (-nodsp), or both (two runs in dsp_on/ and dsp_off/ "
-                             "subdirectories of --out-dir and --build-dir, plus dsp_comparison.md)")
-    parser.add_argument("--nodsp", action="store_true", help="Alias for --dsp off")
     parser.add_argument("--cone-variants", default=",".join(CONE_VARIANTS),
                         help="Comma-separated reintegration variants tried per candidate, in order: raw, remapped")
     parser.add_argument("--jobs", "-j", type=int, default=1,
@@ -805,19 +736,14 @@ def main():
     build_root = Path(args.build_dir).resolve()
     CONE_VARIANTS = tuple(v.strip() for v in args.cone_variants.split(",") if v.strip() in ("raw", "remapped")) or ("remapped",)
     budget_gb = args.mem_gb if args.mem_gb else _mem_total_gb() * 0.7
-    dsp_mode = "off" if args.nodsp else args.dsp
-    runs = _dsp_runs(dsp_mode, out_dir, build_root)
+    runs = [(False, out_dir, build_root)]      # DSP48E1 inference is always on
 
     if args.no_cache:
         cache.disable()                 # inherited by the benchmark processes
     if args.merge:
-        merged_by_mode = []
         for _, run_out, run_build in runs:
             merged = merge_results(run_build, run_out)
-            merged_by_mode.append(merged)
             logger.info("Merged %d result(s) from %s into %s", len(merged), run_build, run_out)
-        if dsp_mode == "both":
-            export_dsp_comparison(merged_by_mode[0], merged_by_mode[1], out_dir)
         return
     suite = select_suite(args.benchmark, args.group)
     if not suite:
@@ -826,7 +752,6 @@ def main():
 
     t_all = time.time()
     failed_any: List[str] = []
-    results_by_mode: List[List[Dict[str, Any]]] = []
     for nodsp, run_out, run_build in runs:
         BUILD_DIR = run_build
         BUILD_DIR.mkdir(parents=True, exist_ok=True)
@@ -838,7 +763,6 @@ def main():
         failed_any += [f"{i} (dsp {'off' if nodsp else 'on'})" for i in failed]
         ids = {b["id"] for b in suite} - set(failed)
         results = [json.loads((BUILD_DIR / i / "result.json").read_text()) for i in sorted(ids) if (BUILD_DIR / i / "result.json").exists()]
-        results_by_mode.append(results)
         if results:
             export_results(results, run_out)
         wall = time.time() - t0
@@ -857,9 +781,6 @@ def main():
             "cache_hits": hits, "cache_misses": misses}, indent=2))
         logger.info("Done in %.1f s (DSP inference %s). Failed: %s. Cache: %d hit / %d miss",
                     wall, "off" if nodsp else "on", failed or "none", hits, misses)
-    if dsp_mode == "both":
-        export_dsp_comparison(results_by_mode[0], results_by_mode[1], out_dir)
-        logger.info("Both DSP runs done in %.1f s", time.time() - t_all)
     sys.exit(1 if failed_any else 0)
 
 
