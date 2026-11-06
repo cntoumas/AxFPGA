@@ -1001,30 +1001,42 @@ def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, anno
                 adir = cdir / f"{s['technique']}_{i}"
                 adir.mkdir(parents=True, exist_ok=True)
                 label = f"{s['technique']}: {row['describe']}"[:160]
-                if s["level"] == "cone":
-                    cone_a, top_a = adir / "approx_cone.v", adir / "final_top.v"
-                    shutil.copy(row["path"], cone_a)
+                # cone candidates: as searched ("raw"), then pre-mapped to Xilinx primitives ("remapped") when the raw
+                # design saved nothing (final synthesis can optimize across the seam differently)
+                variants = ("raw", "remapped") if s["level"] == "cone" else ("design",)
+                for variant in variants:
+                    vdir = adir / variant
+                    vdir.mkdir(parents=True, exist_ok=True)
+                    if s["level"] == "cone":
+                        cone_a, top_a = vdir / "approx_cone.v", vdir / "final_top.v"
+                        try:
+                            src = Path(row["path"]) if variant == "raw" else \
+                                Tournament(cone_estimator, vdir).remap(Path(row["path"]), out_path=vdir / "remapped_cone.v")
+                            shutil.copy(src, cone_a)
+                            _reintegrate(bench, vdir, shell_v, cone_v, cone_a, top_a)
+                        except Exception as exc:
+                            res["reasons"].append(f"reintegration failed: {exc}"[:200])
+                            break
+                    else:
+                        cone_a, top_a = None, Path(row["path"])
+                    map_v, map_j = vdir / "approx_mapped.v", vdir / "approx_mapped.json"
                     try:
-                        _reintegrate(bench, adir, shell_v, cone_v, cone_a, top_a)
+                        rec = assess(top_a, label, variant, map_v, map_j, need_savings_first=True,
+                                     cancel=threading.Event(), key=f"x_{tag}_{s['technique']}_{i}_{variant}")
                     except Exception as exc:
-                        res["reasons"].append(f"reintegration failed: {exc}"[:200])
-                        continue
-                else:
-                    cone_a, top_a = None, Path(row["path"])
-                map_v, map_j = adir / "approx_mapped.v", adir / "approx_mapped.json"
-                try:
-                    rec = assess(top_a, label, "explore", map_v, map_j, need_savings_first=True,
-                                 cancel=threading.Event(), key=f"x_{tag}_{s['technique']}_{i}")
-                except Exception as exc:
-                    res["reasons"].append(f"check failed: {exc}"[:200])
-                    continue
-                rec.update(technique=s["technique"], search_cost=row["cost"], genome=row["genome"],
-                           _paths=(top_a, map_v, map_j, cone_a))
-                attempts.append(rec)
-                if rec.get("outcome") == "passed checks":
-                    res.update(passed=True, rec=rec)
+                        res["reasons"].append(f"check failed: {exc}"[:200])
+                        break
+                    rec.update(technique=s["technique"], search_cost=row["cost"], genome=row["genome"],
+                               _paths=(top_a, map_v, map_j, cone_a))
+                    attempts.append(rec)
+                    if rec.get("outcome") == "passed checks":
+                        res.update(passed=True, rec=rec)
+                        break
+                    res["reasons"].append(rec.get("reason", "rejected"))
+                    if not str(rec.get("reason", "")).startswith("no top-level savings"):
+                        break                      # an error failure is the same for both variants
+                if res["passed"]:
                     break
-                res["reasons"].append(rec.get("reason", "rejected"))
             return res
 
         with ThreadPoolExecutor(max_workers=max(1, min(inner_jobs, 4))) as pool:
