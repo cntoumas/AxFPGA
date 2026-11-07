@@ -83,12 +83,13 @@ class Technique:
 
     def single_site_genomes(self, ks_per_site: int = 2) -> List[Dict[str, Any]]:
         """One-site-at-a-time genomes for the explanation sweep: each site alone at a light and a deep setting."""
-        out = []
-        for gene in self.genes:
-            mk = gene["max_k"]
-            for k in sorted({1, max(1, (mk + 1) // 2)} if ks_per_site >= 2 else {1}):
-                if 1 <= k <= mk:
-                    out.append({gene["site"]: {"op": gene["op"], "k": k, "comp": "zero"}})
+        # every site alone at k = 1 first (so a truncated sweep still covers every site), then the deeper setting
+        out = [{g["site"]: {"op": g["op"], "k": 1, "comp": "zero"}} for g in self.genes if g["max_k"] >= 1]
+        if ks_per_site >= 2:
+            for g in self.genes:
+                k = max(1, (g["max_k"] + 1) // 2)
+                if 1 < k <= g["max_k"]:
+                    out.append({g["site"]: {"op": g["op"], "k": k, "comp": "zero"}})
         return out
 
     # candidates -----------------------------------------------------------
