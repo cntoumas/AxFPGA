@@ -26,6 +26,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from axfpga.cone_interface import parse_cone_interface
+from axfpga.config import xilinx_cells_sim
 from axfpga.estimator import FpgaEstimator
 
 logger = logging.getLogger("axfpga.explore")
@@ -34,6 +35,8 @@ EXHAUSTIVE_BITS = 16
 SAMPLES = 4096
 SEED = 20261106
 DSP_LC_WEIGHT = 20
+# Candidates that instantiate Xilinx primitives (compressors: LUT6_2) need the Yosys simulation models to compile.
+_XILINX_PRIM = re.compile(r"\b(LUT[1-6](?:_2)?|CARRY4|MUXF[78]|FDRE|FDSE|FDCE|FDPE|DSP48E1)\s*(#|\w+\s*\()")
 LOWER_METRICS = ("wce", "med", "mred", "er", "rmse")
 
 
@@ -172,8 +175,9 @@ endmodule
         cv.write_text(text)
         tb.write_text(self._tb(mod, out))
         try:
-            r = subprocess.run(["iverilog", "-g2012", "-o", str(vvp), str(tb), str(cv)], capture_output=True, text=True,
-                               timeout=600)
+            libs = [str(xilinx_cells_sim())] if _XILINX_PRIM.search(text) else []
+            r = subprocess.run(["iverilog", "-g2012", "-o", str(vvp), "-s", "tb_explore", str(tb), str(cv)] + libs,
+                               capture_output=True, text=True, timeout=600)
             if r.returncode != 0:
                 logger.debug("candidate %s does not compile: %s", cand_v, r.stderr[-300:])
                 return None

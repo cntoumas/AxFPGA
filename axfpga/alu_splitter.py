@@ -278,8 +278,8 @@ class AluSplitter:
             body = re.sub(r"\s*assign\s+(?:CO|X|Y)\s*=\s*[^;]+;", "", body)
 
             assign_code = (
-                f"\n  assign {{CO[{msb_width - 1}], Y}} = BI ? ({{1'b0, A}} - {{1'b0, B}} - CI) : ({{1'b0, A}} + {{1'b0, B}} + CI);\n"
-                f"  assign X = A ^ B;\n"
+                f"\n  assign {{CO[{msb_width - 1}], Y}} = {{1'b0, A}} + {{1'b0, BI ? ~B : B}} + CI;  // Yosys $alu: A + (BI ? ~B : B) + CI\n"
+                f"  assign X = A ^ (BI ? ~B : B);\n"
             )
             if msb_width > 1:
                 assign_code += f"  assign CO[{msb_width - 2}:0] = {msb_width - 1}'b0;\n"
@@ -311,8 +311,8 @@ class AluSplitter:
                 f"  output [{msb_width - 1}:0] CO;\n"
                 f"  output [{msb_width - 1}:0] X;\n"
                 f"  output [{msb_width - 1}:0] Y;\n"
-                f"  assign {{CO[{msb_width - 1}], Y}} = BI ? ({{1'b0, A}} - {{1'b0, B}} - CI) : ({{1'b0, A}} + {{1'b0, B}} + CI);\n"
-                f"  assign X = A ^ B;\n"
+                f"  assign {{CO[{msb_width - 1}], Y}} = {{1'b0, A}} + {{1'b0, BI ? ~B : B}} + CI;  // Yosys $alu: A + (BI ? ~B : B) + CI\n"
+                f"  assign X = A ^ (BI ? ~B : B);\n"
                 f"{co_lsb}"
                 f"endmodule\n"
             )

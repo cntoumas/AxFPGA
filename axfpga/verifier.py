@@ -1090,7 +1090,7 @@ class MiterVerifier:
             bound_passed = True
             metric_results = []
             for sig in self.meta.get("relaxed_signals", []):
-                metric = sig.get("metric", "MED").upper()
+                metric = (sig.get("metric") or "WCE").upper()
                 wire_name = sig.get("wire", "unknown")
                 if sig.get("bound") is None:
                     logger.error("Relaxed signal '%s' has no axc_bound; its error cannot be checked", wire_name)

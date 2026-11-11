@@ -226,6 +226,16 @@ def get_compressor_definitions() -> str:
     return COMPRESSOR_VERILOG_PRIMITIVES.strip()
 
 
+def _upper_sum(out_n: str, ow: int, in1_n: str, in2_n: str, w: int, k: int, carry: str, tag: str) -> List[str]:
+    """Exact sum of operand bits [w-1:k] plus the carry into bit k, driving every output bit from k up (carry-out
+    included: the output bus is often one bit wider than the operands, and an undriven MSB read as X)."""
+    if ow <= k:
+        return []
+    return [f"  wire [{ow - k - 1}:0] {tag} = {in1_n}[{w - 1}:{k}] + {in2_n}[{w - 1}:{k}] + {carry};" if w > k else
+            f"  wire [{ow - k - 1}:0] {tag} = {carry};",
+            f"  assign {out_n}[{ow - 1}:{k}] = {tag};"]
+
+
 def generate_compressor_candidates(
     cone_content: str | Path,
     iface: Dict[str, Any],
@@ -283,8 +293,17 @@ def generate_compressor_candidates(
     if len(multibit_inputs) >= 2 and len(multibit_outputs) >= 1:
         in1 = multibit_inputs[0]
         in2 = multibit_inputs[1]
-        out_target = multibit_outputs[0]
+        out_target = next((o for o in multibit_outputs if o.get("name") == rel_out), multibit_outputs[0])
+        # Outputs other than the target keep the exact cone's logic: an instance of the exact cone drives them (its
+        # copy of the target is left unconnected and removed by synthesis). They used to be declared but undriven.
+        header_ports = [t.strip().split()[-1] for t in port_list.split(",") if t.strip()]
+        exact_conns = ", ".join("_exact_target_unused" if n == out_target["name"] else fmt_sig(n) for n in header_ports)
+        exact_inst = [] if len(outputs) <= 1 else [
+            f"  wire [{out_target['width'] - 1}:0] _exact_target_unused;",
+            f"  {mod_name}_exact u_exact ({exact_conns});"]
+        exact_mod = re.sub(rf"\bmodule\s+{re.escape(mod_name)}\b", f"module {mod_name}_exact", cone_content, count=1)
         w = min(in1["width"], in2["width"], out_target["width"])
+        ow = out_target["width"]
 
         for approx_k in [2, 4]:
             if approx_k > w:
@@ -323,8 +342,11 @@ def generate_compressor_candidates(
                 cand_code.append(f"  wire c_mid_{p} = ({in1_n}[{b1}] & {in2_n}[{b1}]) | (({in1_n}[{b1}] ^ {in2_n}[{b1}]) & ({in1_n}[{b0}] & {in2_n}[{b0}]));")
 
             # Upper bits addition using exact logic
-            cand_code.append(f"  assign {out_n}[{w-1}:{approx_k}] = {in1_n}[{w-1}:{approx_k}] + {in2_n}[{w-1}:{approx_k}] + c_mid_{num_pairs-1};")
+            cand_code += _upper_sum(out_n, ow, in1_n, in2_n, w, approx_k, f"c_mid_{num_pairs-1}", "hi42")
+            cand_code += exact_inst
             cand_code.append("endmodule")
+            if exact_inst:
+                cand_code.append(exact_mod)
 
             cand_v = work_dir / f"cand_pyals_comp42_{approx_k}b.v"
             cand_v.write_text("\n".join(cand_code), encoding="utf-8")
@@ -357,8 +379,11 @@ def generate_compressor_candidates(
                 cand53_code.append(f"    .x1({in1_n}[{b}]), .x2({in2_n}[{b}]), .x3({prev_c}), .x4(1'b0), .x5(1'b0),")
                 cand53_code.append(f"    .sum({out_n}[{b}]), .carry(carry53_{b})")
                 cand53_code.append(f"  );")
-            cand53_code.append(f"  assign {out_n}[{w-1}:{approx_k}] = {in1_n}[{w-1}:{approx_k}] + {in2_n}[{w-1}:{approx_k}] + carry53_{approx_k-1};")
+            cand53_code += _upper_sum(out_n, ow, in1_n, in2_n, w, approx_k, f"carry53_{approx_k-1}", "hi53")
+            cand53_code += exact_inst
             cand53_code.append("endmodule")
+            if exact_inst:
+                cand53_code.append(exact_mod)
 
             cand53_v = work_dir / f"cand_pyals_comp53_{approx_k}b.v"
             cand53_v.write_text("\n".join(cand53_code), encoding="utf-8")

@@ -226,9 +226,9 @@ class ConeExtractor:
             has_precise = wire.has_attribute(attr_precise_id)
 
             if has_relax:
-                metric = "MED"
+                metric = "WCE"   # same default as flow.py: axc_bound is a worst-case bound unless axc_metric says otherwise
                 if wire.has_attribute(attr_metric_id):
-                    metric = str(decode_attr(wire.attributes[attr_metric_id], "MED"))
+                    metric = str(decode_attr(wire.attributes[attr_metric_id], "WCE"))
 
                 # No default: a missing bound used to become 0.05, i.e. an integer WCE bound of 0.
                 bound: Optional[float] = None
