@@ -4,8 +4,14 @@
 For each design (its extracted cone and limits taken from a finished suite run), the truncation technique is explored
 by every algorithm with several seeds and the same evaluation budget. Reported per run: best feasible cost, hypervolume
 of the archive's Pareto front (reference: exact cost x error limit), evaluations to reach 95 % of the run's saving.
-Summary: mean / std per algorithm and design, mean rank, one-sided Mann-Whitney U of each algorithm against random
-search (best cost, lower is better), and the recommended default.
+Summary: mean / std per algorithm and design, mean rank, and significance with the designs as blocks: Friedman test
+over the per-design mean savings, one-sided Wilcoxon signed-rank of each algorithm against random search on the
+per-design means, and per-design one-sided Mann-Whitney U against random (seeds as samples); p-values Holm-corrected
+over the algorithms. Designs where every algorithm reaches the same saving (exhaustively enumerated or trivial
+spaces) carry no information and are listed apart.
+
+One task per (design, algorithm, seed); rows are appended to OUT/runs_partial.jsonl as they finish, so a resubmitted
+job skips the runs already done. A failing run is recorded with its error and left out of the statistics.
 
     python scripts/compare_algorithms.py --run-build build/final --run-results reports/final/results.json \
         --out reports/explore/algorithms
@@ -27,6 +33,20 @@ sys.path.insert(0, str(ROOT))
 
 DESIGNS = ("image_pipeline", "kinematics_fwd_bhv", "fir_filter", "multiplier_16b")
 ALGOS = ("EliteSingleGA", "OriginalSA", "OriginalTS", "JADE", "OriginalACOR", "random", "greedy")
+# union of the two earlier comparisons (algorithms + ga_family)
+ALL_ALGOS = ("OriginalTS", "OriginalSA", "OriginalACOR", "JADE", "BaseGA", "SingleGA", "EliteSingleGA", "MultiGA",
+             "EliteMultiGA", "OriginalES", "OriginalEP", "CMA_ES", "OriginalSHADE", "L_SHADE", "SADE", "OriginalCRO",
+             "OriginalMA", "random", "greedy")
+
+
+def holm(p: Dict[str, float]) -> Dict[str, float]:
+    """Holm-Bonferroni adjusted p-values (None entries are kept as None)."""
+    items = sorted((v, k) for k, v in p.items() if v is not None)
+    m, out, run = len(items), {k: None for k in p}, 0.0
+    for i, (v, k) in enumerate(items):
+        run = max(run, min(1.0, (m - i) * v))
+        out[k] = run
+    return out
 
 
 def limits_of(rec: Dict[str, Any]) -> Dict[str, float]:
@@ -39,44 +59,52 @@ def limits_of(rec: Dict[str, Any]) -> Dict[str, float]:
     return out
 
 
-def run_design(job: Dict[str, Any]) -> List[Dict[str, Any]]:
+def run_one(job: Dict[str, Any]) -> Dict[str, Any]:
+    """One (design, algorithm, seed) run; never raises (an error is returned in the row)."""
     logging.basicConfig(level=logging.WARNING)
-    from axfpga.estimator import FpgaEstimator
-    from axfpga.explore.evaluate import ConeEvaluator
-    from axfpga.explore.search import Exploration
-    from axfpga.explore.stage import list_cone_sites
-    from axfpga.explore.techniques import SiteOpsTechnique
+    t0 = time.time()
+    base = {"design": job["design"], "algorithm": job["algo"], "seed": job["seed"]}
+    try:
+        from axfpga.estimator import FpgaEstimator
+        from axfpga.explore.evaluate import ConeEvaluator
+        from axfpga.explore.search import Exploration
+        from axfpga.explore.stage import list_cone_sites
+        from axfpga.explore.techniques import SiteOpsTechnique
 
-    work = Path(job["work"])
-    est = FpgaEstimator(family="xc7", device="xc7z010")
-    meta = Path(job["meta"]) if job["meta"] and Path(job["meta"]).exists() else None
-    ev = ConeEvaluator(Path(job["cone"]), meta, work / "eval", est, job["limits"])
-    sites = list_cone_sites(ev.exact_v, ev.top, ev.rel, work / "sites")
-    tech = SiteOpsTechnique("trunc", sites, ev.exact_v, ev.top, ev.rel)
-    primary = "med" if "wce" not in job["limits"] else "wce"
-    rows = []
-    for algo in job["algos"]:
-        for seed in job["seeds"]:
-            t0 = time.time()
-            s = Exploration(tech, ev, work / f"{algo}_s{seed}", algorithm=algo, budget_fe=job["budget"],
-                            budget_s=job["budget_s"], seed=seed, jobs=job["jobs"], primary=primary, sweep=False).run()
-            best = s["best"]["cost"] if s["best"] else ev.base_cost
-            rows.append({"design": job["design"], "algorithm": algo, "seed": seed, "base_cost": ev.base_cost,
-                         "best_cost": best, "saving_pct": 100.0 * (ev.base_cost - best) / ev.base_cost,
-                         "hypervolume": s["hypervolume"], "evals_to_95pct": s["evals_to_95pct"],
-                         "evaluations": s["evaluations"], "dims": s["dims"], "time_s": round(time.time() - t0, 1),
-                         "convergence": s["convergence"], "best_genome": s["best"]["describe"] if s["best"] else None})
-            with open(Path(job["work"]).parent.parent / "runs_partial.jsonl", "a") as fh:
-                fh.write(json.dumps(rows[-1]) + "\n")
-            print(f"{job['design']:20} {algo:14} seed {seed}: best {best} (base {ev.base_cost}) hv {s['hypervolume']:.4f} "
-                  f"evals {s['evaluations']} {time.time() - t0:.0f}s", flush=True)
-    return rows
+        work = Path(job["work"])
+        est = FpgaEstimator(family="xc7", device="xc7z010")
+        meta = Path(job["meta"]) if job["meta"] and Path(job["meta"]).exists() else None
+        ev = ConeEvaluator(Path(job["cone"]), meta, work / "eval", est, job["limits"])
+        sites = list_cone_sites(ev.exact_v, ev.top, ev.rel, work / "sites")
+        tech = SiteOpsTechnique("trunc", sites, ev.exact_v, ev.top, ev.rel)
+        primary = "med" if "wce" not in job["limits"] else "wce"
+        s = Exploration(tech, ev, work / "run", algorithm=job["algo"], budget_fe=job["budget"],
+                        budget_s=job["budget_s"], seed=job["seed"], jobs=job["jobs"], primary=primary, sweep=False).run()
+        best = s["best"]["cost"] if s["best"] else ev.base_cost
+        row = dict(base, base_cost=ev.base_cost, best_cost=best, saving_pct=100.0 * (ev.base_cost - best) / ev.base_cost,
+                   hypervolume=s["hypervolume"], evals_to_95pct=s["evals_to_95pct"], evaluations=s["evaluations"],
+                   dims=s["dims"], strategy=s.get("strategy"), space_size=s.get("space_size"),
+                   time_s=round(time.time() - t0, 1), convergence=s["convergence"],
+                   best_genome=s["best"]["describe"] if s["best"] else None)
+    except Exception as exc:                        # recorded, not fatal: the other runs go on
+        import traceback
+        row = dict(base, error=f"{type(exc).__name__}: {exc}"[:500], trace=traceback.format_exc()[-1500:],
+                   time_s=round(time.time() - t0, 1))
+    finally:
+        import shutil
+        shutil.rmtree(job["work"], ignore_errors=True)   # node-local scratch: keep only the row
+    return row
 
 
 def summarize(rows: List[Dict[str, Any]], out: Path) -> Dict[str, Any]:
     from scipy.stats import mannwhitneyu
 
-    designs = sorted({r["design"] for r in rows})
+    errors = [r for r in rows if r.get("error")]
+    rows = [r for r in rows if not r.get("error")]
+    algos_all = {r["algorithm"] for r in rows}
+    designs = sorted(d for d in {r["design"] for r in rows}      # partial data: only designs every algorithm ran on
+                     if {r["algorithm"] for r in rows if r["design"] == d} == algos_all)
+    rows = [r for r in rows if r["design"] in designs]
     algos = list(dict.fromkeys([a for a in ALGOS if any(r["algorithm"] == a for r in rows)] + sorted({r["algorithm"] for r in rows})))
     table = {}
     ranks: Dict[str, List[float]] = {a: [] for a in algos}
@@ -106,6 +134,40 @@ def summarize(rows: List[Dict[str, Any]], out: Path) -> Dict[str, Any]:
         except ValueError:
             pvals[a] = None
     mean_rank = {a: statistics.mean(ranks[a]) for a in algos}
+    # designs as blocks: only designs where the algorithms differ carry information
+    informative = [d for d in designs if len({round(table[(d, a)]["saving_mean"], 9) for a in algos}) > 1]
+    flat = [d for d in designs if d not in informative]
+    friedman_p = None
+    wil, mwu_design = {}, {}
+    try:
+        from scipy.stats import friedmanchisquare, wilcoxon
+        if len(informative) >= 2 and len(algos) >= 3:
+            friedman_p = float(friedmanchisquare(*[[table[(d, a)]["saving_mean"] for d in informative] for a in algos]).pvalue)
+        for a in algos:
+            if a == "random":
+                continue
+            diff = [table[(d, a)]["saving_mean"] - table[(d, "random")]["saving_mean"] for d in informative] \
+                if "random" in algos else []
+            try:
+                wil[a] = float(wilcoxon(diff, alternative="greater").pvalue) if any(x != 0 for x in diff) else None
+            except ValueError:
+                wil[a] = None
+            for d in informative:
+                x = [r["saving_pct"] for r in rows if r["design"] == d and r["algorithm"] == a]
+                y = [r["saving_pct"] for r in rows if r["design"] == d and r["algorithm"] == "random"]
+                try:
+                    mwu_design[(d, a)] = float(mannwhitneyu(x, y, alternative="greater").pvalue) if x and y else None
+                except ValueError:
+                    mwu_design[(d, a)] = None
+    except ImportError:
+        pass
+    wil_holm = holm(wil)
+    pooled_holm = holm(pvals)
+    mwu_holm = {}
+    for d in informative:
+        adj = holm({a: mwu_design.get((d, a)) for a in algos if a != "random"})
+        for a, v in adj.items():
+            mwu_holm[(d, a)] = v
     meta_algos = [a for a in algos if a not in ("random", "greedy")]
     winner = min(meta_algos, key=lambda a: (mean_rank[a], -statistics.mean(table[(d, a)]["hv_mean"] for d in designs)))
     md = ["# Search-algorithm comparison", "",
@@ -118,13 +180,26 @@ def summarize(rows: List[Dict[str, Any]], out: Path) -> Dict[str, Any]:
             t = table[(d, a)]
             e95 = "-" if t["e95_mean"] is None else f"{t['e95_mean']:.0f}"
             md.append(f"| {d} | {a} | {t['saving_mean']:.1f} | {t['saving_std']:.1f} | {t['best']:.1f} | {t['hv_mean']:.4f} | {e95} |")
-    md += ["", "| Algorithm | Mean rank (1 = best) | p vs random (one-sided Mann-Whitney, cost) |", "|:--|--:|--:|"]
+    g = lambda v: "-" if v is None else f"{v:.3g}"
+    md += ["", f"Informative designs (algorithms differ): {len(informative)} of {len(designs)}"
+           + (f"; no difference on: {', '.join(flat)}" if flat else "") + ".",
+           f"Friedman test over the informative designs (blocks), algorithms as treatments: p = {g(friedman_p)}.", "",
+           "| Algorithm | Mean rank (1 = best) | Wilcoxon vs random, per-design means | Holm | "
+           "designs better than random (per-design Mann-Whitney, Holm < 0.05) | pooled Mann-Whitney (cost) | Holm |",
+           "|:--|--:|--:|--:|--:|--:|--:|"]
     for a in sorted(algos, key=lambda a: mean_rank[a]):
-        p = pvals.get(a)
-        md.append(f"| {a} | {mean_rank[a]:.2f} | {'-' if p is None else f'{p:.3g}'} |")
+        nsig = sum(1 for d in informative if (mwu_holm.get((d, a)) or 1.0) < 0.05)
+        md.append(f"| {a} | {mean_rank[a]:.2f} | {g(wil.get(a))} | {g(wil_holm.get(a))} | "
+                  f"{'-' if a == 'random' else f'{nsig} of {len(informative)}'} | {g(pvals.get(a))} | {g(pooled_holm.get(a))} |")
+    if errors:
+        md += ["", f"{len(errors)} run(s) failed and are left out:", ""]
+        md += [f"- {r['design']} {r['algorithm']} seed {r['seed']}: {r['error'][:160]}" for r in errors[:30]]
     md += ["", f"**Default chosen: `{winner}`** (best mean rank among the metaheuristics; ties broken by hypervolume)."]
     (out / "summary.md").write_text("\n".join(md) + "\n")
-    summary = {"winner": winner, "mean_rank": mean_rank, "p_vs_random": pvals,
+    summary = {"winner": winner, "mean_rank": mean_rank, "p_vs_random": pvals, "p_vs_random_holm": pooled_holm,
+               "friedman_p": friedman_p, "wilcoxon_vs_random": wil, "wilcoxon_vs_random_holm": wil_holm,
+               "informative_designs": informative, "flat_designs": flat, "failed_runs": len(errors),
+               "per_design_mwu_holm": [{"design": d, "algorithm": a, "p": v} for (d, a), v in mwu_holm.items()],
                "table": [{"design": d, "algorithm": a, **table[(d, a)]} for d in designs for a in algos]}
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     try:
@@ -169,6 +244,7 @@ def main() -> None:
     ap.add_argument("--designs", default=",".join(DESIGNS))
     ap.add_argument("--algos", default=",".join(ALGOS))
     ap.add_argument("--seeds", type=int, default=5)
+    ap.add_argument("--seed-start", type=int, default=1, help="first seed (fresh seeds: not the ones that chose the default)")
     ap.add_argument("--budget", type=int, default=200)
     ap.add_argument("--budget-s", type=float, default=900)
     ap.add_argument("--jobs", type=int, default=4)
@@ -193,20 +269,42 @@ def main() -> None:
                          "evaluations": int(ev), "time_s": float(t), "convergence": [], "best_genome": None})
         (out / "runs.json").write_text(json.dumps(rows, indent=1))
     elif a.summarize_only:
-        rows = json.loads((out / "runs.json").read_text())
+        part = out / "runs_partial.jsonl"
+        rows = (json.loads((out / "runs.json").read_text()) if (out / "runs.json").exists()
+                else [json.loads(ln) for ln in part.read_text().splitlines() if ln.strip()])
     else:
         res = {r["id"]: r for r in json.loads(Path(a.run_results).read_text())}
+        part = out / "runs_partial.jsonl"
+        rows = [json.loads(ln) for ln in part.read_text().splitlines() if ln.strip()] if part.exists() else []
+        done = {(r["design"], r["algorithm"], r["seed"]) for r in rows if not r.get("error")}
+        rows = [r for r in rows if not r.get("error")]          # failed runs are retried
+        seeds = list(range(a.seed_start, a.seed_start + a.seeds))
         jobs = []
-        for algo in a.algos.split(","):          # one job per (design, algorithm): balances slow and fast designs
-            for d in a.designs.split(","):
-                b = Path(a.run_build) / d
-                jobs.append({"design": d, "cone": str(b / "extracted_cone.v"), "meta": str(b / "cone_meta.json"),
-                             "limits": limits_of(res[d]), "work": str(Path(a.work) / d / algo), "algos": [algo],
-                             "seeds": list(range(1, a.seeds + 1)), "budget": a.budget, "budget_s": a.budget_s, "jobs": a.jobs})
-        rows = []
-        with ProcessPoolExecutor(max_workers=a.parallel) as pool:
-            for r in pool.map(run_design, jobs):
-                rows.extend(r)
+        for d in a.designs.split(","):
+            b = Path(a.run_build) / d
+            if d not in res or not (b / "extracted_cone.v").exists():
+                print(f"skip {d}: no cone or no result in the run", flush=True)
+                continue
+            lim = limits_of(res[d])
+            for seed in seeds:                       # seed-major: an interrupted job has every algorithm at low seeds
+                for algo in a.algos.split(","):
+                    if (d, algo, seed) in done:
+                        continue
+                    jobs.append({"design": d, "cone": str(b / "extracted_cone.v"), "meta": str(b / "cone_meta.json"),
+                                 "limits": lim, "work": str(Path(a.work) / d / algo / f"s{seed}"), "algo": algo,
+                                 "seed": seed, "budget": a.budget, "budget_s": a.budget_s, "jobs": a.jobs})
+        print(f"{len(jobs)} run(s) to do, {len(done)} already done", flush=True)
+        from concurrent.futures import as_completed
+        with ProcessPoolExecutor(max_workers=a.parallel) as pool, open(part, "a") as fh:
+            futs = [pool.submit(run_one, j) for j in jobs]
+            for f in as_completed(futs):
+                r = f.result()
+                fh.write(json.dumps(r) + "\n")
+                fh.flush()
+                rows.append(r)
+                tail = r.get("error") or (f"best {r['best_cost']} (base {r['base_cost']}) hv {r['hypervolume']:.4f} "
+                                          f"evals {r['evaluations']} {r['strategy']}")
+                print(f"{r['design']:20} {r['algorithm']:14} seed {r['seed']}: {tail} {r['time_s']:.0f}s", flush=True)
         (out / "runs.json").write_text(json.dumps(rows, indent=1))
     s = summarize(rows, out)
     print("winner:", s["winner"])
