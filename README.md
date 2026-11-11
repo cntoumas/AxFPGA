@@ -1,58 +1,98 @@
-# AxFPGA: Attribute-Driven Approximate Logic Synthesis for FPGAs
+# AxFPGA
 
-AxFPGA is a native FPGA Approximate Logic Synthesis (ALS) & Formal Verification framework targeting modern SRAM-based FPGA architectures, specifically **Xilinx 7-Series / Artix-7 (`xc7a35t`)**.
+Attribute-driven approximate computing for FPGAs, starting from standard Verilog.
 
----
+## Motivation
 
-## Key Features
+Approximate computing trades a bounded output error for less area and power. No commercial FPGA
+compiler accepts approximation directives, and most research tools work on their own netlist formats
+or need a modified compiler.
 
-1. **Approximation Engine: pyALS (Salvatore Barone)**:
-   - **`pyALS` / `pyALSlib` / `pyALS-lut-catalog`**:
-     - Catalog-based AIG-rewriting Approximate Logic Synthesis.
-     - Maps circuits to K-LUT graphs, queries pre-characterized 4-LUT approximation database (`lut_catalog.db`), and applies multi-objective rewriting under error bounds.
-     - Performs distance-k truth table rewrites, cumulative LUT pruning, and output bit-level simplifications.
+AxFPGA needs neither. The designer marks, in plain Verilog, which signals may be approximated and by
+how much. The marks are IEEE 1364 attributes (`(* ... *)`), so the source stays legal Verilog for every
+tool. The open-source Yosys suite reads the attributes, and AxFPGA uses them to find, approximate and
+check the logic.
 
-2. **Physical Architecture Modeling**:
-   - Explicit Xilinx 7-Series primitive decomposition: LUT6, LUT5..1, CARRY4, FDRE/FDSE, DSP48E1, BRAM.
-   - Normalized metric: **Logic Cells** ($LC = \text{LUT} + 2 \times \text{CARRY4}$).
-   - Multi-Algorithm Tournament selecting champion mutant that minimizes physical Logic Cells while strictly satisfying user error bounds (MED, WCE, ER).
+## How it works
 
-3. **Formal SAT Verification**:
-   - 100% Bit-exact sequential control equivalence proving using Yosys SAT engines (`sat -verify -tempinduct`).
-   - Dual-miter cycle-accurate simulation under realistic or trace-driven stimulation.
+1. **Annotate.** Attributes on wires, regs or ports state what is relaxed and the error allowed.
+2. **Extract.** Yosys elaborates the design. AxFPGA extracts the *Cone*: the combinational logic that
+   drives relaxed signals and no precise signal.
+3. **Approximate.** A library of techniques proposes approximate versions of the Cone:
+   - pre-characterized approximate 4-LUTs from the pyALS catalog, LUT pruning, output-bit pruning
+   - truncation of arithmetic operands, internal wires and outputs, with error compensation
+   - lower-part OR adders (LOA) and carry cut at 4-bit boundaries
+   - partial-product pruning of multipliers
+   - truncation of arithmetic behind internal registers
+4. **Explore.** Technique, site and depth form a design space. A metaheuristic search (tabu search by
+   default, others selectable) looks for the cheapest design that meets the error bound. Cost is
+   counted in FPGA Logic Cells (`LUT + 2 x CARRY4`, DSP slices weighted) after `synth_xilinx`.
+5. **Verify.** The chosen design is put back into the full design and simulated against the exact one
+   on the application stimulus and on a held-out stimulus. SAT-based checks (precise outputs unchanged,
+   worst-case error within the bound) are available in `axfpga/verifier.py`.
+6. **Report.** Utilization, activity-based power estimate, error statistics and the accepted netlist.
 
----
+## Annotation example
 
-## Installation & Setup
+```verilog
+module mac (
+    input                    clk,
+    (* axc_precise = "1" *)  input  enable,
+    (* axc_precise = "1" *)  input  clear,
+    input  [7:0]             a, b,
+    (* axc_relax = "1", axc_metric = "WCE", axc_bound = "64" *)
+    output reg [19:0]        acc_out
+);
+```
 
-Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), and Icarus Verilog (`iverilog`, `vvp`) on `PATH`.
-Yosys is pinned to **0.70** through the `pyosys` wheel; no system Yosys is used. The wheel has no
-`yosys` executable, so AxFPGA ships `axfpga-yosys` (`python -m axfpga.yosys_cli`) on top of the same `libyosys`.
+| Attribute | Meaning |
+|---|---|
+| `axc_relax` | the signal may be approximated |
+| `axc_precise` | the signal must stay exact |
+| `axc_bound` | maximum error allowed on the relaxed signal |
+| `axc_metric` | error measure the bound applies to: `WCE`, `MED` or `ER` |
+
+## Install
+
+Requirements: Python 3.12, [uv](https://docs.astral.sh/uv/), Icarus Verilog (`iverilog`, `vvp`).
+Yosys 0.70 comes with the `pyosys` wheel; no system Yosys is needed.
 
 ```bash
 git clone --recurse-submodules <repo> AxFPGA && cd AxFPGA
-
-# Project-local venv in .venv with axfpga and the local pyALSlib submodule (editable)
 uv sync --extra dev
-.venv/bin/axfpga-yosys -V        # Yosys 0.70
+.venv/bin/axfpga-yosys -V
 .venv/bin/python -m pytest tests
 ```
 
-Configuration (environment variables, see `axfpga/config.py`): `AXFPGA_AXBENCH_ROOT` (AxBench checkout,
-default `~/Downloads/axbench-verilog`), `AXFPGA_VIVADO` (Vivado executable, validation only),
-`AXFPGA_YOSYS` (override the Yosys command line).
-
----
-
-## CLI Usage
+## Run
 
 ```bash
-# Full automated end-to-end FPGA synthesis flow
+# one design
 axfpga -i benchmarks/mac/mac.v -o build/mac_run
 
-# AxBench evaluation on the Zybo Z7-10 (xc7z010), parallel; results in reports/
+# benchmark suite (AxBench and in-house designs) for the Zybo Z7-10 (xc7z010)
 scripts/run_axbench_zybo.sh
-
-# Automated Pareto sweeps over error bounds
-axfpga-sweep -i benchmarks/mac/mac.v -o reports/mac_sweep -b "8, 16, 32, 64, 128"
 ```
+
+Settings are read from environment variables (`axfpga/config.py`): `AXFPGA_AXBENCH_ROOT` (AxBench
+checkout), `AXFPGA_YOSYS` (Yosys command), `AXFPGA_VIVADO` (Vivado executable, for comparison runs).
+
+## Status
+
+Working: annotation, Cone extraction, the technique library, the search, simulation-based checking and
+reporting, on 23 benchmark designs.
+
+In progress:
+
+- one joint search over technique combinations across sites, instead of one search per technique
+- multi-objective search (area, power, logic depth) returning a Pareto front
+- formal proof of the selected design as part of the default flow
+
+Planned: Vivado implementation inside the flow, and a single command for the whole run.
+
+Cost and power numbers come from Yosys synthesis and are estimates until checked with Vivado.
+
+## Acknowledgement
+
+The LUT approximation catalog and parts of the candidate generation build on
+[pyALS](https://github.com/SalvatoreBarone/pyALS) by Salvatore Barone.
