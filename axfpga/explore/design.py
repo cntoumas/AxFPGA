@@ -1,6 +1,4 @@
-"""Design-level evaluation: for techniques that change the whole design (array-multiplier PPG depth, truncation behind
-internal registers). Error on the relaxed top output from a random-vector simulation of the whole design, cost from a
-full Yosys synthesis. Same record and fitness as ``ConeEvaluator``."""
+"""Design-level evaluation: for techniques that change the whole design (array-multiplier PPG depth, truncation behind"""
 
 from __future__ import annotations
 

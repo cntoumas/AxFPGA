@@ -1,15 +1,4 @@
-"""Design-level operators: truncation of arithmetic cells of the whole elaborated design, behind registers included.
-
-The cone-level operators (``core``) act on the combinational cone, which ends at the first register. This module applies
-the same operand-truncation operator to the arithmetic cells that ``ConeExtractor(through_registers=True)`` found to be
-relaxed behind internal registers (``meta["through_registers"]["sites"]``), on the full design, and writes the whole
-design as Verilog. The design has no cone-level bound: its error is measured on the application stream by the pipeline,
-and its precise signals are proven unchanged by the control-equivalence proof (there is no WCE proof).
-
-Run in a subprocess (``python -m axfpga.operators.design_level SPEC.json RESULT.json``), like ``core``.
-Spec: {"files": [...], "top": str, "sites": [site ids], "out_dir": str, "genomes": {name: {"k": int, "comp": str}}}.
-A genome truncates every listed site that exists in the elaborated design by k bits with the correction ``comp``.
-"""
+"""Design-level operators: truncation of arithmetic cells of the whole elaborated design, behind registers included."""
 
 from __future__ import annotations
 

@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Stage 2 of the pipeline only: annotate each design and extract its safe cone, as run_design does.
-
-Writes <out>/<id>/extracted_cone.v and cone_meta.json (the inputs of scripts/compare_algorithms.py) without
-synthesizing or exploring anything, so an algorithm comparison can start minutes after submission.
-
-    python scripts/extract_cones.py --out build/cones -b fir_filter -b sobel_npu
-"""
+"""Stage 2 of the pipeline only: annotate each design and extract its safe cone, as run_design does."""
 from __future__ import annotations
 
 import argparse

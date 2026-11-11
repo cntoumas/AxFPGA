@@ -1,19 +1,4 @@
-"""Central configuration: tool locations and external data paths.
-
-Every path can be overridden with an environment variable, so no machine-specific path is
-hard-coded in the package or the scripts.
-
-| Setting            | Environment variable    | Default                                            |
-|--------------------|-------------------------|----------------------------------------------------|
-| Yosys command line | ``AXFPGA_YOSYS``        | ``python -m axfpga.yosys_cli`` (pyosys wheel 0.70) |
-| AxBench checkout   | ``AXFPGA_AXBENCH_ROOT`` | ``~/Downloads/axbench-verilog``                    |
-| Vivado executable  | ``AXFPGA_VIVADO``       | ``vivado`` (from PATH)                             |
-
-Yosys is pinned to the version of the ``pyosys`` wheel (0.70) for both the in-process
-(pyosys) and the command-line steps. The wheel ships ``libyosys``, ``yosys-abc`` and the
-``share`` directory but no ``yosys`` executable, so the command line is
-:mod:`axfpga.yosys_cli`, a thin driver around the same ``libyosys``.
-"""
+"""Central configuration: tool locations and external data paths."""
 
 from __future__ import annotations
 

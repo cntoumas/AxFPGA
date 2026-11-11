@@ -1,12 +1,4 @@
-"""Quality attributes of the suite designs (one dict per suite id; plain data, no imports).
-
-The suite copies these into the annotated private copy of each design, so every design runs through the same
-attribute parser, plugin loader and evaluator as a user design. ``plugin`` names a file in this directory (AxBench
-designs and their behavioural-multiplier variants) or in the design's own directory (the Phase-4 designs).
-Budgets are in LSB units of the relaxed output in its number format (see docs/phases/phase-2-design.md, section 3).
-``horizon`` / ``clear_period`` are the Phase-6 accumulation assumptions (axc_horizon / axc_clear_period, reserved
-attributes: parsed and stored, not used before Phase 6); see docs/phases/phase-4.md.
-"""
+"""Quality attributes of the suite designs (one dict per suite id; plain data, no imports)."""
 
 ANNOTATIONS = {
     "brent_kung_16b": {"format": "u", "quality": "wce<=15; med<=7.5; mred<=1%; app>=30", "plugin": "arith.py", "seed": 2026},
@@ -24,15 +16,11 @@ ANNOTATIONS = {
     "sobel_npu": {"format": "sm16q9", "quality": "wce<=26; med<=13; mred<=1%; app>=30", "plugin": "sobel_npu.py", "seed": 2026},
 }
 
-# Phase 4: behavioural-multiplier variants (the AxBench array multipliers replaced by Verilog '*', see
-# benchmarks/behavioural/). Same format, constraints, plugin and seed as the original design.
 BEHAVIOURAL_VARIANTS = ("multiplier_16b", "multiplier_32b", "neural_network", "kinematics_fwd", "kinematics_inv",
                         "sobel_npu")
 for _id in BEHAVIOURAL_VARIANTS:
     ANNOTATIONS[_id + "_bhv"] = dict(ANNOTATIONS[_id])
 
-# Phase 4: larger designs written for this repository (plugins next to the RTL). Quality targets are provisional
-# until the first full run (docs/phases/phase-4.md, "Open decisions").
 ANNOTATIONS.update({
     "conv2d_3x3": {"format": "u8", "quality": "wce<=8; med<=2; app>=35", "plugin": "conv2d_plugin.py", "seed": 2026},
     "fft64_psd": {"format": "u32", "quality": "wce<=16384; med<=2048; app>=40", "plugin": "fft64_plugin.py",

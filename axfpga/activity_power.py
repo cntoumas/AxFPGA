@@ -1,17 +1,4 @@
-"""Activity-based dynamic power estimation for Yosys-mapped Xilinx 7-Series netlists.
-
-Method:
-1. Simulate the Yosys-mapped netlist (LUT/CARRY4/FD*/DSP48E1/RAMB* primitives, Yosys
-   cells_sim.v models) in iverilog with a given per-cycle input vector stream.
-2. Count output-bit toggles of every mapped cell from the VCD (zero-delay simulation,
-   so glitch power is not captured).
-3. P_dyn = sum over cells of E_toggle(type) * toggle_rate * f_clk, plus FF clock load
-   and per-active-cycle energy for DSP48E1 / block RAM.
-
-The per-primitive energies are fixed assumptions for 7-Series at VCCINT = 1.0 V
-(ENERGY_PJ below). Static power is not modelled: it is a device constant, identical
-for any two designs on the same part. Results are estimates, not sign-off power.
-"""
+"""Activity-based dynamic power estimation for Yosys-mapped Xilinx 7-Series netlists."""
 
 from __future__ import annotations
 
@@ -79,10 +66,7 @@ def run_vector_sim(
     tag: str = "sim",
     timeout: int = 3600,
 ) -> Dict[str, Any]:
-    """Drive `top` with one input vector per cycle; return per-cycle output values (and VCD path).
-
-    inputs/outputs: (port_name, width) excluding clk/rst. Unknown output bits read as 0.
-    """
+    """Drive `top` with one input vector per cycle; return per-cycle output values (and VCD path)."""
     work_dir = Path(work_dir).resolve()
     work_dir.mkdir(parents=True, exist_ok=True)
     vec_file = work_dir / f"{tag}_vectors.hex"

@@ -1,10 +1,4 @@
-"""Clock/reset port resolution shared by the verifier, trace extractor and pipeline.
-
-Precedence: explicit ``axc_clock`` / ``axc_reset`` attribute (carried in the cone
-metadata as ``clock``, ``reset``, ``reset_active_low``), then an explicit
-argument, then a name guess (a warning is logged when the guess is used).
-Pure Python: no pyosys import.
-"""
+"""Clock/reset port resolution shared by the verifier, trace extractor and pipeline."""
 
 from __future__ import annotations
 
@@ -35,11 +29,7 @@ def resolve_clock_reset(inputs: Sequence[Mapping[str, Any]],
                         clock: Optional[str] = None,
                         reset: Optional[str] = None,
                         reset_active_low: Optional[bool] = None) -> Dict[str, Any]:
-    """Return {"clk", "rst", "rst_active_low", "source", "clk_source", "rst_source"}.
-
-    ``source`` is "attribute", "argument", "guess" or "none" (the first of clk/rst that resolved).
-    ``rst_active_low`` defaults to True when there is no reset (legacy value).
-    """
+    """Return {"clk", "rst", "rst_active_low", "source", "clk_source", "rst_source"}."""
     meta = meta or {}
     names = _names(inputs)
     lower = {n.lower(): n for n in names}

@@ -1,10 +1,4 @@
-"""Realistic Pipeline Trace Extractor.
-
-Simulates the top-level design shell (exact pipeline) to dump active datapath
-vectors arriving at the combinational approximation cone into a .hex trace file.
-This provides realistic input distributions (e.g., pipeline delay correlation,
-spatial locality, valid handshakes) as Tournament stimulus.
-"""
+"""Realistic Pipeline Trace Extractor."""
 
 from __future__ import annotations
 

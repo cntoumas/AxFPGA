@@ -1,18 +1,4 @@
-"""FPGA extensions on top of the unmodified upstream pyALSlib (PyPI ``pyalslib==1.3.1``).
-
-These used to live in a local pyALSlib fork (commit 1155811, never published). They are
-kept here so that AxFPGA depends only on the released pyALSlib:
-
-- ``get_active_inputs`` / ``get_dropped_inputs_count``: support set of a LUT truth table.
-- :class:`FpgaCatalogCache`: catalog query for approximate LUTs that *drop inputs*
-  (fewer active inputs = smaller FPGA LUTs), used by the pyALS candidate generator.
-- ``dead_cells`` / ``fpga_cost``: MFFC + support-weighted FPGA surrogate cost of an ALSGraph.
-- ``remap_xilinx_7series``: Xilinx 7-Series re-mapping of a pyosys design.
-- ``prep_design``: pyALSlib ``YosysHelper.prep_design`` with optional carry-chain protection.
-
-Importing this module also installs a ``ys.SigMap`` fallback: pyosys 0.70 does not expose
-``SigMap``, which upstream ``ALSGraph`` and ``YosysHelper`` call.
-"""
+"""FPGA extensions on top of the unmodified upstream pyALSlib (PyPI ``pyalslib==1.3.1``)."""
 
 from __future__ import annotations
 
@@ -58,10 +44,7 @@ install_sigmap_fallback()
 # --------------------------------------------------------------------------- truth tables
 
 def get_active_inputs(spec: str) -> List[int]:
-    """Indices of the inputs a truth table depends on (cofactors T|x=0 and T|x=1 differ).
-
-    ``spec`` is the truth table as a string of '0'/'1', entry k for input vector k.
-    """
+    """Indices of the inputs a truth table depends on (cofactors T|x=0 and T|x=1 differ)."""
     n_bits = len(spec)
     active = []
     for j in range((n_bits - 1).bit_length()):
@@ -86,12 +69,7 @@ class FpgaCatalogCache(ALSCatalogCache):
         self.db_path = file_name
 
     def get_input_dropping_approx_luts(self, spec: str, max_dist: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Approximate LUTs for ``spec`` that depend on fewer inputs.
-
-        Looks up ``spec`` (or, if absent, its negation) at distance > 0 (and <= ``max_dist``),
-        keeps the entries that drop at least one active input, and orders them by most inputs
-        dropped, then fewest gates, then smallest Hamming distance.
-        """
+        """Approximate LUTs for ``spec`` that depend on fewer inputs."""
         query = ("select synth_spec, S, P, out_p, out, depth, distance from luts "
                  "where spec = ? and distance > 0" + (" and distance <= ?" if max_dist else "") + " order by distance")
         connection = sqlite3.connect(self.db_path)
@@ -128,8 +106,7 @@ class FpgaCatalogCache(ALSCatalogCache):
 # --------------------------------------------------------------------------- LUT graph cost
 
 def dead_cells(graph, configuration: Optional[Dict[str, Any]] = None) -> list:
-    """Cells of an ALSGraph whose outputs no primary output depends on any more (dead MFFCs),
-    given the per-cell approximate specs in ``configuration`` ({cell name: {"axspec": ...}})."""
+    """Cells of an ALSGraph whose outputs no primary output depends on any more (dead MFFCs),"""
     cells = graph.get_cells()
     active_deps = {}
     for c in cells:
@@ -149,8 +126,7 @@ def dead_cells(graph, configuration: Optional[Dict[str, Any]] = None) -> list:
 
 def fpga_cost(graph, configuration: Optional[Dict[str, Any]] = None,
               w_lut: float = 1.0, w_in: float = 0.25, w_mffc: float = 1.0) -> float:
-    """MFFC + support-weighted FPGA surrogate cost of an ALSGraph:
-    sum over live LUTs of (w_lut + w_in * |support|) minus w_mffc per dead cell."""
+    """MFFC + support-weighted FPGA surrogate cost of an ALSGraph:"""
     dead = {c.index for c in dead_cells(graph, configuration)}
     cost = 0.0
     for c in graph.get_cells():

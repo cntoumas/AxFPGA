@@ -1,10 +1,4 @@
-"""LUT-level sites of a cone: its 4-LUT mapping, and per-LUT approximate rewrites from the pyALS catalog.
-
-The cone is mapped once (``abc -lut 4``); every LUT is a site, identified by its position in that mapping, which is
-fixed for one cone. Sites are ranked by significance: the highest relaxed-output bit a LUT can reach (LUTs that only
-feed low output bits come first). A gene per LUT selects:
-  0 exact, 1 Hamming distance 1, 2 distance 2, 3 input dropping (distance <= 2), 4 constant 0.
-"""
+"""LUT-level sites of a cone: its 4-LUT mapping, and per-LUT approximate rewrites from the pyALS catalog."""
 
 from __future__ import annotations
 

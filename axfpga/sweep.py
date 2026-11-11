@@ -1,9 +1,4 @@
-"""Pareto Sweeper CLI and API for AxSYS (Phase 3).
-
-Executes automated sweeps over comma-separated error bounds, collects standard-cell
-area, power, timing, and formal SAT verification metrics, and generates publication-quality
-Pareto trade-off plots and CSV summaries.
-"""
+"""Pareto Sweeper CLI and API for AxSYS (Phase 3)."""
 
 from __future__ import annotations
 

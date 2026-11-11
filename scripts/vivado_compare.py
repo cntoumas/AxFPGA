@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Vivado implementation of the exact and the approximate design of every benchmark of a suite run.
-
-Variants per design (all implemented with the same Vivado flow, part and clock):
-  exact_rtl      exact RTL                                  -> Vivado synth + place + route
-  approx_yosys   approximate netlist mapped by Yosys        -> Vivado synth + place + route   (the framework's output)
-  exact_yosys    exact netlist mapped by Yosys (control: the same Yosys mapping, without the approximation)
-  approx_rtl     approximate RTL (control: the approximation, with Vivado's own synthesis)
-Comparing exact_rtl with approx_yosys mixes two effects (Yosys vs Vivado mapping, and the approximation); the two
-controls separate them: approx_yosys vs exact_yosys and approx_rtl vs exact_rtl isolate the approximation.
-
-Flow: synth_design -mode out_of_context (no I/O buffers: wide designs exceed the package pins), opt_design,
-place_design, route_design. Clock: the design's clock port at CLK_NS (same as the activity-power model, 125 MHz);
-a combinational design gets a virtual clock, and every data input / output a zero I/O delay to that clock, so every
-path is constrained. Reports: utilization (LUT, FF, CARRY4, MUXF7/8, DSP48, BRAM, occupied slices), timing (WNS,
-critical-path delay, Fmax) and power (vectorless: default switching activity, not a simulation; OOC: no I/O power).
-
-    python scripts/vivado_compare.py --run-build build/cluster_TAG/explore_v4 \
-        --run-results reports_cluster_TAG/explore_v4/results.json --out reports_cluster_TAG/vivado --parallel 16
-"""
+"""Vivado implementation of the exact and the approximate design of every benchmark of a suite run."""
 from __future__ import annotations
 
 import argparse

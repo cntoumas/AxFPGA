@@ -1,6 +1,4 @@
-"""Search runner: one exploration per technique (mealpy metaheuristic, exhaustive enumeration, or depth bisection),
-the archive of every evaluated point, its Pareto front (cost vs the annotated error metric) and the per-site
-explanation of why the chosen sites win."""
+"""Search runner: one exploration per technique (mealpy metaheuristic, exhaustive enumeration, or depth bisection),"""
 
 from __future__ import annotations
 
@@ -58,8 +56,6 @@ def _model(name: str, epochs: int):
     raise ValueError(f"unknown algorithm {name!r}")
 
 
-# Further evolutionary / genetic algorithms of mealpy (name -> (module, class, extra parameters)), compared in
-# reports_cluster_*/ga_family. Population size POP_SIZE; mealpy defaults otherwise.
 EVOLUTIONARY = {
     "BaseGA": ("GA", "BaseGA", {"pc": 0.9, "pm": 0.1}),
     "SingleGA": ("GA", "SingleGA", {"pc": 0.9, "pm": 0.1}),
@@ -149,8 +145,7 @@ class Exploration:
         return row
 
     def _sparse(self, rnd: random.Random) -> Dict[str, Any]:
-        """A random genome near the exact design: each site active with probability ~2/dims, mostly light depths.
-        Approximation spaces are feasible only near the exact design; dense random genomes almost never are."""
+        """A random genome near the exact design: each site active with probability ~2/dims, mostly light depths."""
         genes = self.tech.genes
         p = min(0.5, 2.0 / max(1, len(genes)))
         ks, cs = [], []
@@ -267,9 +262,6 @@ class Exploration:
             while len(seeds) < pop:
                 seeds.append(self._sparse(rnd))
             starts = [encode(g) for g in seeds[:pop]]
-        # Watchdog: mealpy's own termination is checked per epoch, and some algorithms can loop inside an epoch
-        # without evaluating anything (seen with EliteSingleGA once every genome is memoized). The solve runs in a
-        # daemon thread; past the time budget (+ grace) the search is abandoned and the archive so far is used.
         err: List[BaseException] = []
 
         def solve() -> None:

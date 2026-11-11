@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Supervisor report from a suite run: tables (Markdown), figures (PNG) and a flat JSON for the dashboard.
-
-    python scripts/final_report.py --run reports/final --out reports/final
-
-Reads <run>/results.json and writes REPORT.md, report_data.json and figures/*.png into --out.
-"""
+"""Supervisor report from a suite run: tables (Markdown), figures (PNG) and a flat JSON for the dashboard."""
 from __future__ import annotations
 
 import argparse

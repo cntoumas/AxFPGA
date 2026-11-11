@@ -97,11 +97,7 @@ def compute(name: str, e: np.ndarray, a: np.ndarray, opts: Optional[Opts] = None
 
 
 def error_stats(fmt: NumberFormat, exact_rows, approx_rows, wire: str, skip: int, extra: Sequence[str] = ()) -> Dict[str, float]:
-    """wce/med/mred/er/samples/format of one output on the decoded values, plus the requested extra metrics.
-
-    Extra metric options: psnr uses the format peak, agreement uses thr 0; per-constraint options are applied by
-    QualitySpec.evaluate callers that pass them through compute().
-    """
+    """wce/med/mred/er/samples/format of one output on the decoded values, plus the requested extra metrics."""
     n = min(len(exact_rows), len(approx_rows))
     e = decoded(fmt, exact_rows, wire, skip, n)
     a = decoded(fmt, approx_rows, wire, skip, n)

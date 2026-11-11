@@ -1,9 +1,4 @@
-"""Cone Interface parsing.
-
-Reads the module name, ports, bus ranges and relaxed output of an extracted
-Cone netlist. Shared by the Tournament and every candidate Generator so they
-agree on which output is the relaxed one.
-"""
+"""Cone Interface parsing."""
 
 from __future__ import annotations
 
@@ -54,8 +49,6 @@ def parse_cone_interface(cone_vlog: str | Path, meta_json: Optional[str | Path] 
             if direction in ("output", "inout"):
                 outputs[name] = info
 
-    # Select relaxed output: the annotated (* axc_relax *) wire if it is a Cone output,
-    # else the widest multi-bit output (the main arithmetic bus)
     meta_wire = None
     meta_format = None
     if meta_json and Path(meta_json).exists():
@@ -85,9 +78,6 @@ def parse_cone_interface(cone_vlog: str | Path, meta_json: Optional[str | Path] 
     ):
         outputs[relaxed_out]["signed"] = True
 
-    # Explicit number format of the relaxed output (axc_format): {"kind": "u"|"s"|"sm", "width": W, "frac": F}, else None.
-    # With it the Tournament measures the error on the decoded value, like the application stream does; without it
-    # the legacy raw-word distance is kept.
     relaxed_format = None
     if meta_format and relaxed_out in outputs:
         try:

@@ -1,8 +1,4 @@
-"""axc_quality grammar: ``metric[opts] op number[%]`` constraints separated by ';', and their evaluation.
-
-Evaluation and failure-message order is fixed (the legacy order of pipeline.assess):
-wce, med, mred, er, rmse, the higher-is-better built-ins in text order, then app.
-"""
+"""axc_quality grammar: ``metric[opts] op number[%]`` constraints separated by ';', and their evaluation."""
 
 from __future__ import annotations
 
@@ -172,11 +168,7 @@ class QualitySpec:
 
     def evaluate(self, errs: Mapping[str, Any], extra: Optional[Mapping[str, float]] = None,
                  app: Optional[Dict[str, Any]] = None) -> Tuple[List[str], List[Dict[str, Any]]]:
-        """(failure messages in the fixed order, per-constraint records).
-
-        ``errs`` holds wce/med/mred/er (and rmse when constrained); ``extra`` the higher-is-better built-in
-        values; ``app`` the plugin metric dict (threshold and pass are filled in).
-        """
+        """(failure messages in the fixed order, per-constraint records)."""
         vals: Dict[str, Any] = dict(errs)
         vals.update(extra or {})
         self.apply_app(app)

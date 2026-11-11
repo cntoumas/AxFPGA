@@ -1,17 +1,4 @@
-"""DEPRECATED (Phase 2): reference implementation only. The suite uses axfpga/quality plus the plugins in
-benchmarks/axbench/; tests/test_axbench_equivalence.py checks the two agree.
-
-Application-level stimulus and metrics for the 13 AxBench circuits.
-
-Every benchmark gets a deterministic (seeded) per-cycle input stream for its top-level
-ports. The exact and approximated tops are simulated with the same stream, and the
-application metric compares their output streams. Errors are always measured against
-the exact hardware, not against floating-point ground truth.
-
-AxBench ships no application datasets (no NN weights/labels, no k-means engine around
-sub_8b); the only shared input is scripts/images/peppers.png. Choices made here are
-labelled in each metric's "note".
-"""
+"""DEPRECATED (Phase 2): reference implementation only. The suite uses axfpga/quality plus the plugins in"""
 
 from __future__ import annotations
 
@@ -59,8 +46,6 @@ def _rgb(size: int) -> np.ndarray:
     return np.asarray(Image.open(PEPPERS).convert("RGB").resize((size, size), Image.BILINEAR), dtype=np.int64)
 
 
-# --------------------------------------------------------------------------- output number formats
-# How the relaxed output word is read: ("unsigned", W) | ("twos", W) | ("sm", W) sign-magnitude, in LSB units.
 OUTPUT_FORMAT: Dict[str, Tuple[str, int]] = {
     "multiplier_16b": ("twos", 32),
     "multiplier_32b": ("twos", 64),

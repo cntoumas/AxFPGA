@@ -7,8 +7,6 @@ import pytest
 
 from axfpga.verifier import FormalWceVerifier, match_cone_output
 
-# Extracted Cones keep hierarchical port names: the relaxed wire `S` is the port `\U0.S`,
-# next to an auxiliary carry port `\U0.Po`.
 CONE = """
 module cone(a, b, \\U0.Po , \\U0.S );
   input [3:0] a;

@@ -1,9 +1,4 @@
-"""QualityEvaluator: the pipeline's evaluator duck type, driven by a WireQuality (attributes) and an optional plugin.
-
-Tuning stream = the legacy stream (seed unchanged, first half of a file, plugin stimulus("tuning")). The held-out
-stream (derived seed, second half of a file, plugin stimulus("heldout")) is evaluated once on the accepted design
-and never feeds back into selection.
-"""
+"""QualityEvaluator: the pipeline's evaluator duck type, driven by a WireQuality (attributes) and an optional plugin."""
 
 from __future__ import annotations
 

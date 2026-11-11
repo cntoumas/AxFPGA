@@ -1,16 +1,4 @@
-"""Proof outcomes and certification tiers.
-
-Every formal check reports one :class:`ProofStatus`. A reported design is
-
-- **certified** when every applicable proof is PROVEN;
-- **bounded-certified** when every proof is PROVEN or BOUNDED (holds for the first N cycles
-  from reset, not proven forever) and at least one is BOUNDED;
-- **uncertified** otherwise: any TIMEOUT, INCONCLUSIVE, ERROR, N/A or FALSIFIED.
-
-N/A counts as uncertified on purpose: a proof that applies to the design but was not run
-(e.g. a WCE proof for design-level PPG pruning) gives no guarantee. The exact design itself
-(no approximation applied) is certified trivially.
-"""
+"""Proof outcomes and certification tiers."""
 
 from __future__ import annotations
 

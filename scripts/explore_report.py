@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Supervisor report of a design-space-exploration suite run (AXFPGA_SEARCH=meta).
-
-    python scripts/explore_report.py --run reports/explore --baseline reports/final \
-        --algos reports/explore/algorithms --out reports/explore
-
-Writes REPORT.md, report_data.json and figures/*.png into --out (then scripts/report_html.py makes REPORT.html).
-"""
+"""Supervisor report of a design-space-exploration suite run (AXFPGA_SEARCH=meta)."""
 from __future__ import annotations
 
 import argparse

@@ -1,10 +1,4 @@
-"""iir_biquad (Phase 4): low-pass biquad on a passband tone plus a stopband tone plus noise, output SNR.
-
-Input (16-bit two's complement, |x| <= 2^14 so the filter cannot saturate): 6000 sin(2 pi 0.01 n) in the passband,
-3000 sin(2 pi 0.2 n) in the stopband (cut-off 0.05 fs), Gaussian noise sigma 300; 4000 samples, in_valid always 1.
-Held-out stream: derived noise seed and random tone phases (as the AxBench FIR plugin).
-Metric: SNR of the approximate filter output against the exact one (error accumulates through the feedback).
-"""
+"""iir_biquad (Phase 4): low-pass biquad on a passband tone plus a stopband tone plus noise, output SNR."""
 
 import importlib.util as _u
 import pathlib as _p

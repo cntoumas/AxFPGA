@@ -1,14 +1,4 @@
-"""Pipeline stage: build every technique's space for one design and explore each one.
-
-Cone-level techniques (on C_safe):
-  trunc, loa, nibble, ppg       per-site RTL operators (axfpga.explore.ops), mealpy search (or exhaustive)
-  pyals_lut                     per-LUT catalog rewrites on the cone's 4-LUT mapping, mealpy search
-  loa_cone, ppg_cone, compressors, nibble_cone, pyals_catalog, pyals_prune, out_prune
-                                whole-cone candidates (one parameter each), enumerated
-Design-level techniques:
-  ppg_design                    array-multiplier anti-diagonal depth (UB1BPPG designs), bisection
-  trunc_reg                     truncation of arithmetic behind internal registers, per site, mealpy search
-"""
+"""Pipeline stage: build every technique's space for one design and explore each one."""
 
 from __future__ import annotations
 
@@ -106,8 +96,7 @@ def cone_techniques(ev: Any, cone_v: Path, meta_json: Optional[Path], work: Path
 def explore(techs: Sequence[Technique], evaluators: Dict[str, Any], work: Path, algorithm: str, jobs: int,
             primary: str, budget_fe: Optional[int] = None, budget_s: Optional[float] = None,
             seed: Optional[int] = None) -> List[Dict[str, Any]]:
-    """Explore every technique; returns one summary per technique (best point, front, explanation, ...).
-    Budgets and seed default to AXFPGA_BUDGET_FE / AXFPGA_BUDGET_S / AXFPGA_SEED, else BUDGET_FE / BUDGET_S / 1."""
+    """Explore every technique; returns one summary per technique (best point, front, explanation, ...)."""
     budget_fe = budget_fe or int(os.environ.get("AXFPGA_BUDGET_FE", BUDGET_FE))
     budget_s = budget_s or float(os.environ.get("AXFPGA_BUDGET_S", BUDGET_S))
     seed = seed if seed is not None else int(os.environ.get("AXFPGA_SEED", 1))

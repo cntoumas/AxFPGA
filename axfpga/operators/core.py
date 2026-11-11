@@ -1,23 +1,4 @@
-"""RTL-level approximation operators on a word-level cone netlist (pyosys).
-
-Used inside a subprocess (``python -m axfpga.operators.core``), never in the pipeline process: libyosys keeps global
-state, and running the operators out of process keeps the other in-process Yosys steps (and so their cache keys)
-independent of how many candidates were generated.
-
-Operators (a *gene* per *site*):
-
-``trunc``  Operand LSB truncation with a constant correction, on an arithmetic cell (``$add``, ``$sub``, ``$mul``).
-           The k low bits of every variable operand are tied to 0. The output bits that are then known to be zero
-           (``z`` of them) are driven by a constant ``c`` instead of the cell: ``c`` is 0 (plain truncation),
-           2^(z-1) (``mid``: half of the dropped range, the usual rounding offset) or 2^z - 1 (``max``). The correction
-           costs nothing: it only replaces constant-zero bits by other constants.
-``out``    Output truncation: the k low bits of the relaxed output bus are tied to the constant ``c`` (same menu with
-           z = k), on any cone, whatever its logic.
-
-A gene is ``{"k": int, "comp": "zero" | "mid" | "max"}``. A genome is ``{site_id: gene}``.
-Site ids are stable across runs: ``<kind>@<file>:<line.col-line.col>`` from the cell's ``src`` attribute, with ``#n``
-for duplicates; the output site is ``out@<wire>``.
-"""
+"""RTL-level approximation operators on a word-level cone netlist (pyosys)."""
 
 from __future__ import annotations
 
@@ -247,8 +228,7 @@ def write(design, path: str) -> None:
 
 
 def run_batch(spec: Dict[str, Any]) -> Dict[str, Any]:
-    """spec: {"cone", "out_wire", "module"?, "list_sites"?, "genomes": {name: genome}, "out_dir"}.
-    Returns {"sites": [...], "written": {name: path}, "errors": {name: message}}."""
+    """spec: {"cone", "out_wire", "module"?, "list_sites"?, "genomes": {name: genome}, "out_dir"}."""
     result: Dict[str, Any] = {"sites": [], "written": {}, "errors": {}}
     if spec.get("list_sites"):
         _, m = load(spec["cone"], spec.get("module"))

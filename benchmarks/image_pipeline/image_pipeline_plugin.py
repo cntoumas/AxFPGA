@@ -1,10 +1,4 @@
-"""image_pipeline (Phase 4): a 64x64 RGB image streamed in raster order, edge-image PSNR.
-
-One pixel per cycle (rgb_in = R << 16 | G << 8 | B, in_valid always 1), followed by enough zero pixels to flush the
-two line-buffer stages (2 * (2 * WIDTH + 2) cycles plus margin), so the last image rows leave the pipeline.
-Tuning stream: peppers.png; held-out stream: baboon.gaussian.jpg (both from the AxBench checkout).
-Metric: PSNR (peak 255) of the approximate edge stream against the exact one.
-"""
+"""image_pipeline (Phase 4): a 64x64 RGB image streamed in raster order, edge-image PSNR."""
 
 import importlib.util as _u
 import pathlib as _p

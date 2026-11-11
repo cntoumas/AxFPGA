@@ -1,26 +1,4 @@
-"""AxFPGA pipeline: one design through Yosys synthesis, PPG pruning / pyALS Tournament, verification, power.
-
-Public API
-    DesignSpec      what to approximate (files, top, relaxed output, precise inputs, error budget)
-    run_design      full flow on one spec -> result dict (exact vs approximate utilization, errors, formal, power)
-    GenericEvaluator   seeded random stimulus + error statistics for any design (used by the axfpga CLI)
-    annotate_verilog, fmt
-    _top_ports, _normalize_rtl, _reintegrate, _formal_control, _formal_checks   (building blocks)
-
-Application-level checks (stimulus, error statistics, application metric, power vectors) are supplied by an
-``evaluator`` object, so the library does not depend on the benchmark scripts. It must provide
-    build_stimulus(id) -> (vectors, ctx)
-    error_stats(id, exact_outputs, approx_outputs, relax_wire, skip) -> {wce, med, mred, er}
-    app_metrics(id, vectors, exact_outputs, approx_outputs, relax_wire=, skip=) -> dict
-    power_vectors(id, vectors) -> vectors
-and, optionally, for the held-out stream
-    build_heldout(id) -> (vectors, ctx) | None
-    app_metrics_for(stream, vectors, exact_outputs, approx_outputs, skip) -> dict
-Pass ``evaluator=None`` to let the pipeline build a ``QualityEvaluator`` from the axc_* attributes of the relaxed wire
-(axfpga/quality): axc_format, axc_quality constraints, axc_stimulus / axc_plugin / axc_seed. Selection uses the tuning
-stream; the held-out stream is evaluated on the accepted design and reported in ``result["heldout"]``. For PPG-pruned
-designs (no WCE proof) it also gates acceptance: a depth that fails a constraint there is skipped.
-"""
+"""AxFPGA pipeline: one design through Yosys synthesis, PPG pruning / pyALS Tournament, verification, power."""
 
 from __future__ import annotations
 
@@ -69,8 +47,6 @@ FPGA_DEVICE = "xc7z010"
 # Parts by device: designs larger than the xc7z010 are evaluated on the xc7z020 and labelled with its part.
 FPGA_PARTS = {"xc7z010": FPGA_PART, "xc7z020": "xc7z020clg400-1"}
 F_CLK_MHZ = 125.0
-# Cycles of the activity-power simulation (evenly spaced from the power stimulus). Kept short since Phase 4: the
-# gate-level VCD simulation of large designs took tens of minutes, and Vivado SAIF power (Phase 9) is the reference.
 POWER_CYCLES = 256
 TOURNAMENT_SAMPLES = 256        # random cone vectors per candidate in the Tournament (64 until Phase 5)
 FORMAL_TIMEOUT_S = 120
@@ -144,11 +120,7 @@ def annotate_verilog(
     reset: Optional[str] = None,
     reset_active_low: Optional[bool] = None,
 ) -> List[Path]:
-    """Insert IEEE Verilog attributes (* axc_relax *) and (* axc_precise *) into design files.
-
-    ``attrs`` adds more axc_* items to the relaxed wire ("format" or "axc_format" -> axc_format="..."); ``clock`` /
-    ``reset`` add the axc_clock / axc_reset markers to those input ports.
-    """
+    """Insert IEEE Verilog attributes (* axc_relax *) and (* axc_precise *) into design files."""
     output_dir.mkdir(parents=True, exist_ok=True)
     annotated_files: List[Path] = []
 
@@ -229,10 +201,7 @@ def _patched_files(spec: DesignSpec, work: Path) -> List[Path]:
 @yosys_serialized
 def _top_ports(files: List[Path], top: str, clock: Optional[str] = None, reset: Optional[str] = None,
                reset_active_low: Optional[bool] = None, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Top-level ports of the exact design, with clock/reset split out.
-
-    Clock and reset: axc_clock / axc_reset attributes (``meta``), then the explicit arguments, then a name guess.
-    """
+    """Top-level ports of the exact design, with clock/reset split out."""
     d = ys.Design()
     ys.run_pass(" ".join(f"read_verilog -sv {f};" for f in files) + f" hierarchy -top {top}", d)
     mod = d.top_module()
@@ -247,8 +216,7 @@ def _top_ports(files: List[Path], top: str, clock: Optional[str] = None, reset: 
 
 def _with_meta_ports(ports: Dict[str, Any], meta: Dict[str, Any], clock: Optional[str], reset: Optional[str],
                      reset_active_low: Optional[bool]) -> Dict[str, Any]:
-    """Re-resolve clock / reset once the cone metadata (axc_clock / axc_reset) is known. Pure Python: the Yosys
-    read of the exact design stays where it was (before the cone extraction), as IdString order depends on it."""
+    """Re-resolve clock / reset once the cone metadata (axc_clock / axc_reset) is known. Pure Python: the Yosys"""
     if not (meta.get("clock") or meta.get("reset")):
         return ports
     ins = ports["all_inputs"]
@@ -259,11 +227,7 @@ def _with_meta_ports(ports: Dict[str, Any], meta: Dict[str, Any], clock: Optiona
 
 
 def _normalize_rtl(src: Path, top: str, out: Path) -> Path:
-    """Yosys-normalized netlist (proc; flatten) with synthesis semantics.
-
-    Some AxBench sources use blocking assignments in chained flip-flops (e.g. fir/dff),
-    which race in event-driven RTL simulation; Yosys gives the hardware semantics.
-    """
+    """Yosys-normalized netlist (proc; flatten) with synthesis semantics."""
     lib = "read_verilog -lib +/xilinx/cells_sim.v; " if any(
         p in src.read_text(errors="ignore") for p in ("LUT1", "LUT2", "LUT3", "LUT4", "LUT5", "LUT6", "CARRY4", "FDRE")) else ""
     ckey = cache.make_key("norm", [src], top=top, lib=bool(lib))
@@ -386,14 +350,7 @@ def _stage_pool(workers: int):
 def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator, inner_jobs: int = 1, *,
                work_dir: Union[str, Path], evaluator: Any, cone_variants: Sequence[str] = CONE_VARIANTS,
                tournament_estimator: Optional[FpgaEstimator] = None) -> Dict[str, Any]:
-    """Run the full Yosys + pyALS flow, verification, application metric and power on one design.
-
-    ``work_dir`` is the design's private directory (deleted and recreated). ``evaluator`` supplies the application
-    stimulus and metrics (see the module docstring). ``inner_jobs`` > 1 evaluates candidates concurrently
-    (subprocess steps in parallel, in-process pyosys steps serialized); the result is identical to 1.
-    ``tournament_estimator`` costs the cone candidates (default: xc7z010 with the DSP setting of ``estimator``; until
-    Phase 4 it always allowed DSPs, which made every cone with a multiplier look almost free in a -nodsp run).
-    """
+    """Run the full Yosys + pyALS flow, verification, application metric and power on one design."""
     if not isinstance(spec, DesignSpec):
         spec = DesignSpec.from_dict(spec)
     variants = tuple(cone_variants)
@@ -419,8 +376,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     app_dir = bench_work / "app"
     app_dir.mkdir(parents=True, exist_ok=True)
 
-    # Stage 1: exact baseline synthesis and exact application reference. Both are subprocess-only,
-    # so they overlap with the cone extraction (pyosys, main thread) below.
     logger.info("[Stage 1] Yosys synth_xilinx of exact baseline...")
     exact_map_v, exact_map_j = bench_work / "exact_mapped.v", bench_work / "exact_mapped.json"
 
@@ -474,8 +429,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     has_safe_cone = cone_v.exists() and len(meta.get("safe_cells", [])) > 0 and meta.get("status") not in ("NO_RELAX_SIGNALS", "TAINTED_EMPTY_SAFE_SET")
     cone_meta = meta_json if meta_json.exists() else None
 
-    # Application stimulus (shared by every attempt) and quality constraints. These need the cone metadata
-    # (axc_* attributes of the relaxed wire, clock / reset ports).
     ports = _with_meta_ports(ports, meta, bench["clock"], bench["reset"], bench["reset_active_low"])
     if evaluator is None:
         evaluator = _quality_evaluator(spec, bench, meta, ports)
@@ -502,9 +455,7 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
 
     def assess(top_v: Path, label: str, variant: str, map_v: Path, map_j: Path, need_savings_first: bool,
                cancel: threading.Event, key: str) -> Dict[str, Any]:
-        """Synthesize + check one candidate design. Errors are measured on the application stream,
-        in the relaxed output's number format. Formal proofs are run by the caller.
-        Thread-safe: every output file name carries ``key``."""
+        """Synthesize + check one candidate design. Errors are measured on the application stream,"""
         rec: Dict[str, Any] = {"candidate": label, "variant": variant}
 
         def checkpoint() -> None:
@@ -620,9 +571,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         rec["_heldout"] = h
         return list(h["violations"])
 
-    # Stage 3a: design-level partial-product pruning of every array multiplier (UB1BPPG cells), before flattening.
-    # Binary search over the anti-diagonal depth; with inner jobs the next two possible depths are evaluated
-    # speculatively. The visited depths and the choice are identical to the serial search.
     exact_code = exact_top_v.read_text(encoding="utf-8", errors="ignore")
     ppgs = PpgPruner.detect_ppg_modules(exact_code)
     meta_mode = os.environ.get("AXFPGA_SEARCH", "meta").strip().lower() != "tournament"
@@ -661,10 +609,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         for k, rec in visited:
             attempts.append(rec)
             evaluated[k] = rec
-        # Synthesized size is not monotone in k (pruned zeros reshape the Wallace tree), so pick the
-        # cheapest evaluated depth that passed every check, not simply the deepest in-budget one.
-        # A PPG-pruned design has no WCE proof: its errors are only sampled. The cheapest passing depth is therefore
-        # also checked on the held-out stream (never used for the search itself), and the next cheapest is taken if it fails.
         passing = sorted((r["lcs"], r["luts"], -k, k) for k, r in evaluated.items() if r["err_ok"] and r["savings_ok"])
         best_k = None
         for _lcs, _luts, _nk, k in passing:
@@ -721,8 +665,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             logger.info("[Attempt] %s [%s] (cone LCs %d -> %d)", alt.name, variant, champion.baseline_lcs, alt.lcs)
             cone_a, top_a = adir / "approx_cone.v", adir / "final_top.v"
             map_v, map_j = adir / "approx_mapped.v", adir / "approx_mapped.json"
-            # "raw": candidate as simulated by the Tournament (final synth optimizes across the seam);
-            # "remapped": cone pre-mapped to Xilinx primitives.
             src = alt.netlist_path if variant == "raw" else tournament.remap(alt.netlist_path, out_path=adir / "remapped_cone.v")
             shutil.copy(src, cone_a)
             _reintegrate(bench, adir, shell_v, cone_v, cone_a, top_a)
@@ -730,8 +672,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             rec.update(cone_lcs=alt.lcs, cone_baseline_lcs=champion.baseline_lcs, _paths=(top_a, map_v, map_j, cone_a))
             if rec.get("outcome") != "passed checks":
                 return rec
-            # Exact side of the WCE proof = the Tournament's normalized cone (raw extracted cone can leave
-            # relaxed-bus bits undriven, which SAT treats as free).
             formal_ctrl, formal_wce = _formal_checks(exact_top_v, top_a,
                                                      exact_cone_norm if exact_cone_norm.exists() else cone_v,
                                                      cone_a, cone_meta, top_mod,
@@ -748,8 +688,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
                                              executor=pool if inner_jobs > 1 else None, cancel=cancel)
         attempts.extend(rec for _, rec in consumed)
         if found is not None:
-            # The first candidate that passed may sit below milder-failing ones' neighbours: try the skipped, cheaper ones
-            # between it and the previous attempt (cheapest first) and keep the cheapest that passes.
             passed_alt = consumed[found][0][1]                     # consumed items are the job tuples (index, candidate, variant)
             gap = gaps[alts.index(passed_alt)] if passed_alt in alts else []
             if gap:
@@ -770,9 +708,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
                                + (" or PPG depths" if ppgs else "") + " met every threshold (see attempts)") if alts else \
                               ("no cone candidate met the cone bound with resource savings" + (" and no in-budget PPG depth with savings" if ppgs else ""))
 
-    # Stage 3c: operand truncation of the arithmetic behind internal registers (design level, no cone-level bound).
-    # Candidates are evaluated like the PPG depths: application-stream limits, held-out gate, control proof; no WCE proof,
-    # because the error behind a register accumulates across cycles (sequential bounds are Phase 6).
     reg_info: Optional[Dict[str, Any]] = None
     if tr is not None:
         reg_info = {"relaxed_registers": tr["num_registers_relaxed"], "arithmetic_sites": len(tr["sites"]),
@@ -864,8 +799,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     except Exception as exc:
         logger.warning("full error metrics unavailable: %s", exc)
 
-    # Stage 7b: held-out stream, evaluated on the accepted design and reported. It is used only as an acceptance gate
-    # for PPG-pruned designs (Stage 3a), never for the search.
     heldout: Optional[Dict[str, Any]] = None
     heldout_reason: Optional[str] = None
     if fell_back:
@@ -918,8 +851,6 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         "method": method,
         "fell_back": fell_back,
         "fallback_reason": fallback_reason,
-        # Accepted design with zero error on the application and the held-out stream: an exact rewrite (e.g. logic the
-        # synthesizer keeps although no output reads it), not an approximation; reported apart from the approximations.
         "exact_rewrite": bool(not fell_back and errs["wce"] == 0 and heldout is not None
                               and (heldout.get("errors") or {}).get("wce") == 0),
         "metric": bench["metric"],
@@ -960,12 +891,7 @@ NO_PROOF = "N/A (design-space exploration: no proofs run)"
 def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, annotated_files, top_mod, cone_v, shell_v,
                    cone_meta, has_safe_cone, quality, estimator, cone_estimator, exact_res, evaluator, sim_kw, skip,
                    inner_jobs, assess, finalize, attempts, approx_cone_v, app_vectors=None, heldout_gate=None):
-    """Design-space exploration of C_safe, one search per technique, then the synthesized check of each technique's
-    best points (full synthesis, control sanity simulation, application stream and metric). Winner: lowest cost among
-    the techniques whose design passed. If none passed: one re-search with the error limits halved, then exact.
-    A design that passes on the application stream must also pass on the held-out stream (``heldout_gate``); the search
-    and the application-stream checks only ever see the tuning stream, so a point tuned to it (e.g. a zero-error saving
-    that the stream never exercises) is caught here and the technique's next ranked point is tried."""
+    """Design-space exploration of C_safe, one search per technique, then the synthesized check of each technique's"""
     ex_dir = bench_work / "explore"
     algorithm = algorithm_from_env()
     only = techniques_from_env()
@@ -1015,8 +941,6 @@ def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, anno
                 adir = cdir / f"{s['technique']}_{i}"
                 adir.mkdir(parents=True, exist_ok=True)
                 label = f"{s['technique']}: {row['describe']}"[:160]
-                # cone candidates: as searched ("raw"), then pre-mapped to Xilinx primitives ("remapped") when the raw
-                # design saved nothing (final synthesis can optimize across the seam differently)
                 variants = ("raw", "remapped") if s["level"] == "cone" else ("design",)
                 for variant in variants:
                     vdir = adir / variant
@@ -1066,8 +990,6 @@ def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, anno
                 algorithm, limits)
     summaries = explore(techs, evs, ex_dir / "main", algorithm, inner_jobs, primary)
     checks = check(summaries, "main")
-    # Re-search with tighter limits only helps when designs failed on error or the application metric, not when the
-    # synthesized design simply saved nothing (e.g. a design that is one DSP block).
     savings_only = all(r.startswith(("no top-level savings", "uses more DSP")) for c in checks for r in c["reasons"])
     if not any(c["passed"] for c in checks) and any(s["best"] for s in summaries) and not savings_only:
         half = {k: v / 2.0 for k, v in limits.items()}
@@ -1107,16 +1029,7 @@ def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, anno
 
 
 def _ladder(alts: List[Any], limit: int) -> Tuple[List[Any], List[List[Any]]]:
-    """The candidates to attempt, best (cheapest) first, and the ones skipped between consecutive attempts.
-
-    Greedy stacking makes many candidates of almost the same cost whose errors rise together: the first ``limit`` by cost
-    would be variants of one aggressive genome that all fail the application-stream check, and the milder candidates that
-    would pass are never tried. So: one candidate per distinct cone cost, spread evenly over the whole range when there
-    are more than ``limit`` of them (always including the cheapest and the mildest), then cost ties up to ``limit``.
-    ``gaps[i]`` holds the distinct-cost candidates skipped between attempt i - 1 and attempt i: when attempt i is the
-    first to pass, they are tried next (cheapest first), because one of them may pass too and save more.
-    With at most ``limit`` distinct costs this is the plain best-first prefix and every gap is empty.
-    """
+    """The candidates to attempt, best (cheapest) first, and the ones skipped between consecutive attempts."""
     seen, distinct, ties = set(), [], []
     for a in alts:                       # alternatives are already sorted by cost, luts, error, name
         key = a.lcs + DSP_LC_WEIGHT * a.dsps
@@ -1137,10 +1050,7 @@ def _spread_attempts(alts: List[Any], limit: int) -> List[Any]:
 
 
 def _resolve_quality(evaluator: Any, bench: Dict[str, Any]) -> QualitySpec:
-    """The constraint set of the run: the evaluator's attribute constraints, else the legacy budget fields.
-
-    The formal bound (``bench["bound"]``, from --bound or the attributes) always wins for the wce constraint.
-    """
+    """The constraint set of the run: the evaluator's attribute constraints, else the legacy budget fields."""
     q = getattr(evaluator, "_quality", None)
     if q is None:
         return QualitySpec.legacy(bench["bound"], bench["metric"], bench["med_limit"], bench["mred_limit"])
@@ -1175,10 +1085,7 @@ def _quality_evaluator(spec: DesignSpec, bench: Dict[str, Any], meta: Dict[str, 
 def _heldout(evaluator: Any, quality: QualitySpec, bench_id: str, wire: str, skip: int, tuning_vectors, exact_out,
              approx_out, exact_norm: Path, approx_top: Path, top_mod: str, sim_kw: Dict[str, Any],
              cache: Optional[Dict[str, Any]] = None, tag: str = "heldout") -> Optional[Dict[str, Any]]:
-    """Exact and accepted-approximate simulation on the held-out stream; error statistics, constraints, application metric.
-
-    ``cache`` keeps the held-out stimulus and the exact outputs across calls (the gate evaluates several candidates);
-    ``tag`` keeps the file names of different candidates apart."""
+    """Exact and accepted-approximate simulation on the held-out stream; error statistics, constraints, application metric."""
     cache = cache if cache is not None else {}
     lock = cache.setdefault("_lock", threading.Lock())      # the explore check gates techniques in parallel threads
     with lock:
@@ -1216,12 +1123,7 @@ def fmt(v: Any, nd: int = 2) -> str:
 
 
 class GenericEvaluator:
-    """Evaluator for arbitrary designs: seeded random stimulus, error statistics of one relaxed output, no application metric.
-
-    Error is the modular distance of the two output words, so two's-complement wrap-around is handled and no
-    signedness is needed; ``signed`` only selects the reference for MRED. 1-bit inputs named like an enable are
-    mostly 1, those named like a clear/flush mostly 0, so state-holding designs accumulate.
-    """
+    """Evaluator for arbitrary designs: seeded random stimulus, error statistics of one relaxed output, no application metric."""
     _ON = re.compile(r"(^|_)(en|enable|valid|start|ce|run|load)($|_)", re.I)
     _OFF = re.compile(r"(^|_)(clear|clr|flush|zero|reset|rst)($|_)", re.I)
 

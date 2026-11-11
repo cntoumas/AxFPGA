@@ -1,7 +1,4 @@
-"""Phase 4 benchmark set: suite entries, attributes, plugins, reference models, DSP report. No HDL simulation.
-
-The RTL-against-model checks that need iverilog are in tests/test_phase4_rtl.py.
-"""
+"""Phase 4 benchmark set: suite entries, attributes, plugins, reference models, DSP report. No HDL simulation."""
 
 import importlib.util
 import math

@@ -1,5 +1,4 @@
-"""Phase 5 operators (axfpga.operators): site enumeration, operand truncation with correction, output truncation,
-genome application in a subprocess, greedy neighbours; behaviour checked by iverilog against a Python model."""
+"""Phase 5 operators (axfpga.operators): site enumeration, operand truncation with correction, output truncation,"""
 
 import random
 import shutil
@@ -163,9 +162,6 @@ def test_menu_and_neighbours_are_deterministic_and_bounded():
     assert next_k(12, 14) == 14 and next_k(14, 14) is None and next_k(0, 15) == 1
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# Property: approximation never changes the fan-in of a precise signal (Phase 5 gate).
-# ---------------------------------------------------------------------------------------------------------------
 TOY = """module toy(
   input clk,
   input rst,
@@ -204,8 +200,6 @@ def _extract_and_reintegrate(tmp_path, genome_builder):
     assert not res["errors"], res["errors"]
     final = tmp_path / "final.v"
     Reintegrator(top_shell_path=shell, approx_cone_path=res["written"]["g"], extracted_cone_path=cone).reintegrate(out_final_path=final)
-    # The reference is the same shell with the unapproximated cone: the extractor's own elaboration already restructures
-    # the shell, so the original source is not comparable cell by cell.
     exact = tmp_path / "exact_reintegrated.v"
     Reintegrator(top_shell_path=shell, approx_cone_path=cone, extracted_cone_path=cone).reintegrate(out_final_path=exact)
     return src, exact, final, sites, meta

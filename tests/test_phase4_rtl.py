@@ -1,9 +1,4 @@
-"""Phase 4 RTL against bit-accurate models (iverilog, cycle by cycle).
-
-- benchmarks/behavioural/*: the behavioural multipliers equal the AxBench array multipliers (and the exact product).
-- conv2d_3x3, iir_biquad, image_pipeline, fft64_psd: the RTL equals tests/phase4_models.py on random streams.
-The models themselves are checked against floating-point references in tests/test_phase4_benchmarks.py.
-"""
+"""Phase 4 RTL against bit-accurate models (iverilog, cycle by cycle)."""
 
 import random
 import shutil

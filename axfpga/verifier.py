@@ -1,17 +1,4 @@
-"""Automated Miter Verification Harness.
-
-Instantiates the golden exact RTL and the final approximated gate netlist
-side-by-side in an automated Miter testbench, compiling and executing with Icarus Verilog.
-Also integrates mathematical formal verification via Yosys SAT:
-1. Formal Control Equivalence (sat -tempinduct): mathematically proves 100% bit-exact
-   control preservation across all reachable sequential states.
-2. Formal Combinational WCE Prover (sat -prove): mathematically proves that the
-   datapath error |Y_{exact} - Y_{approx}| <= WCE_{bound} holds for all input combinations.
-
-Enforces two strict verification invariants:
-1. Zero Control Corruption: 100% cycle-exact match on (* axc_precise *) and unannotated outputs.
-2. Bounded Error: Measured error metric on (* axc_relax *) signals <= axc_bound.
-"""
+"""Automated Miter Verification Harness."""
 
 from __future__ import annotations
 
@@ -38,12 +25,7 @@ logger = logging.getLogger("verifier")
 
 
 def match_cone_output(wire: str, outputs: List[str]) -> str:
-    """Cone output port carrying the relaxed wire ``wire``.
-
-    Extracted Cone ports keep the hierarchical path of the wire (``U0.U0.S`` for ``S``,
-    ``M2.out`` for ``out``), so the port is the one named ``wire`` or ending in ``.wire``.
-    Exactly one port must match: a silent guess could prove the bound on the wrong output.
-    """
+    """Cone output port carrying the relaxed wire ``wire``."""
     if not wire:
         raise ValueError("relaxed signal has no wire name")
     names = {o.lstrip("\\") : o for o in outputs}
@@ -303,8 +285,6 @@ class FormalControlVerifier:
                 rst_args = f"-set-at 1 {rst_name} {rst_val} -unset-at 1 {rst_name} "
             n = self.induction_depth
 
-            # 1. Bounded model check of cycles 1..N from power-up (registers zero, reset in cycle 1).
-            #    `sat -seq N -tempinduct` alone would never check these first N cycles.
             logger.info("Executing Formal Control bounded check over %d cycles (timeout=%ds)", n, self.timeout)
             bmc = run_sat(f"sat -timeout {self.timeout} -seq {n} -set-init-zero {rst_args}"
                           f"-show ctrl_mismatch -prove ctrl_mismatch 1'b0", "bmc")
@@ -368,8 +348,6 @@ class FormalWceVerifier:
                 self.meta = json.load(f)
 
         self.target_signals = target_signals or self.meta.get("relaxed_signals", [])
-        # Treat relaxed outputs as two's complement (subtractors); keeps the formal bound
-        # consistent with the simulation miter's signedness rule.
         self.signed_outputs = signed_outputs
 
     @yosys_serialized

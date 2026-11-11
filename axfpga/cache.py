@@ -1,14 +1,4 @@
-"""Content-hash cache for the subprocess-based evaluation steps (Yosys, iverilog/vvp, formal checks).
-
-An entry is keyed by a SHA-256 over everything the step depends on: the bytes of its input files, its
-scalar options and the tool fingerprint (pyosys version, ``iverilog -V``, the Xilinx cell models). A hit
-returns the stored result and restores the stored output files, so a warm run is bit-identical to a
-cold one. Results that depend on machine load (TIMEOUT, ERROR, COMPILATION_ERROR) are never stored.
-
-Location: ``$AXFPGA_CACHE`` or ``./build/.cache``. ``AXFPGA_NO_CACHE=1`` (or ``--no-cache`` on the
-suite) turns it off. Writes are atomic (temp directory, then rename), so concurrent threads and
-processes can share the directory.
-"""
+"""Content-hash cache for the subprocess-based evaluation steps (Yosys, iverilog/vvp, formal checks)."""
 
 from __future__ import annotations
 
@@ -104,8 +94,7 @@ _EMBEDDED_PATH = re.compile(r"(?:/[\w.\-@+]+)+/([\w.\-]+\.v)")
 
 
 def file_digest(path: Any) -> str:
-    """SHA-256 of a file. For Verilog the ``src = "<path>:<line>"`` attributes Yosys writes are blanked: they carry
-    the machine-specific work-directory path of the run that produced the file and do not change any result."""
+    """SHA-256 of a file. For Verilog the ``src = "<path>:<line>"`` attributes Yosys writes are blanked: they carry"""
     p = Path(path)
     if not p.is_file():
         return "missing"
@@ -218,8 +207,7 @@ def save(ns: str, key: str, value: Any, files: Optional[Mapping[str, Any]] = Non
 
 
 def object_parts(obj: Any, skip: Iterable[str] = ()) -> Dict[str, Any]:
-    """Key parts of an object's attributes: files by content, everything else by repr (``meta`` style dicts are
-    derived from files and skipped by name)."""
+    """Key parts of an object's attributes: files by content, everything else by repr (``meta`` style dicts are"""
     parts: Dict[str, Any] = {}
     for k, v in sorted(vars(obj).items()):
         if k in skip:

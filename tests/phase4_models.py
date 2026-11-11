@@ -1,9 +1,4 @@
-"""Bit-accurate Python models of the Phase-4 designs (benchmarks/{conv2d,iir,image_pipeline,fft64}).
-
-Each model follows the RTL register by register, so the iverilog tests can compare the RTL with it cycle by cycle;
-the pure-Python tests compare the models with floating-point references (numpy FFT, filter recurrence, image
-convolutions) to check the algorithms themselves.
-"""
+"""Bit-accurate Python models of the Phase-4 designs (benchmarks/{conv2d,iir,image_pipeline,fft64})."""
 
 from __future__ import annotations
 
@@ -17,9 +12,6 @@ def wrap(v: int, w: int) -> int:
     return v - (1 << w) if v >> (w - 1) else v
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# conv2d_3x3: act = sat255(ReLU(sum_i win_i * w_i) >> SHIFT); out row t + 1 holds the result of vector t.
-# ---------------------------------------------------------------------------------------------------------------
 def conv2d_act(win: Sequence[int], weights: Sequence[int], shift: int = 6) -> int:
     acc = sum(int(p) * int(w) for p, w in zip(win, weights))
     if acc < 0:
@@ -27,10 +19,6 @@ def conv2d_act(win: Sequence[int], weights: Sequence[int], shift: int = 6) -> in
     return min(255, acc >> shift)
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# iir_biquad: y[n] = sat16((329 x[n] + 658 x[n-1] + 329 x[n-2] + 25576 y[n-1] - 10508 y[n-2]) >> 14)
-# out row n holds y[n] (y_out is the y[n-1] register after the clock edge of sample n).
-# ---------------------------------------------------------------------------------------------------------------
 IIR_B = (329, 658, 329)
 IIR_A = (16384, -25576, 10508)
 
@@ -46,10 +34,6 @@ def iir_model(x: Sequence[int]) -> List[int]:
     return out
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# image_pipeline: luma -> 3x3 Gaussian blur -> Sobel magnitude, shift-register line buffers of WIDTH pixels.
-# One call per valid cycle; returns edge_out after that clock edge (all registers start at 0 after reset).
-# ---------------------------------------------------------------------------------------------------------------
 class ImagePipelineModel:
     def __init__(self, width: int = 64):
         self.w = width
@@ -103,9 +87,6 @@ class ImagePipelineModel:
 IMAGE_LATENCY_EXTRA = 6     # out row t holds the edge pixel of raster index t - 2 * WIDTH - 6
 
 
-# ---------------------------------------------------------------------------------------------------------------
-# fft64_psd: six radix-2 SDF stages (delay 32 .. 1), Q1.14 twiddles, halving butterflies, power of each bin.
-# ---------------------------------------------------------------------------------------------------------------
 TWIDDLES = [(round(16384 * math.cos(2 * math.pi * n / 64)), round(16384 * math.sin(2 * math.pi * n / 64)))
             for n in range(32)]
 

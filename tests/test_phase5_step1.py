@@ -1,5 +1,4 @@
-"""Phase 5, step 1: the Tournament measures cone error on the decoded value of an explicit axc_format; the result
-records the cone leaderboard; the headroom diagnosis reads it."""
+"""Phase 5, step 1: the Tournament measures cone error on the decoded value of an explicit axc_format; the result"""
 
 import importlib.util
 import json
@@ -172,8 +171,7 @@ def test_ladder_spreads_attempts_over_the_cost_range_and_reports_the_gaps():
 
 
 def test_dsp_weighted_cost_never_prefers_logic_over_dsp_blocks():
-    """A LUT-mapped candidate of a DSP cone (no DSP, +1200 LC) must not look cheaper than the DSP cone, while a candidate
-    that needs fewer DSP blocks at about the same logic does."""
+    """A LUT-mapped candidate of a DSP cone (no DSP, +1200 LC) must not look cheaper than the DSP cone, while a candidate"""
     from axfpga.tournament import DSP_LC_WEIGHT
 
     def cost(lcs, dsps):

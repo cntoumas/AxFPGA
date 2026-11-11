@@ -1,10 +1,4 @@
-"""RTLIL Relaxability Inference and Submodule Extractor using Pyosys.
-
-Traverses IEEE 1364/1800 annotated Verilog designs in Pyosys RTLIL,
-computes safe combinational cones (C_safe = C_relax \\ C_precise),
-and partitions the design into an isolated combinational submodule and top wrapper
-using the Yosys `submod` pass.
-"""
+"""RTLIL Relaxability Inference and Submodule Extractor using Pyosys."""
 
 from __future__ import annotations
 
@@ -28,8 +22,6 @@ def decode_attr(attr_val: Any, default: Any = None) -> Any:
         return default
     flags = getattr(attr_val, "flags", None)
     if isinstance(flags, int) and not flags & 1 and hasattr(attr_val, "as_int"):
-        # A numeric constant (CONST_FLAG_STRING unset). Without this check, a number whose bytes happen to be
-        # printable (axc_bound=32 -> ' ', 16384 -> '@') was decoded as a string.
         try:
             return attr_val.as_int()
         except Exception:
@@ -103,8 +95,6 @@ class ConeExtractor:
         logger.info("Executing Pyosys elaboration frontend: %s", pre_cmd)
         ys.run_pass(pre_cmd, self.design)
 
-        # Step 2: Protect any module with memories, arrays, or lookup tables from flattening
-        # This guarantees Yosys synth_xilinx can later infer dedicated Block RAMs (RAMB36E1/RAMB18E1)
         for mod_name, mod in self.design.modules_.items():
             name_str = mod_name.str().lstrip("\\").lower()
             has_mem = len(mod.memories) > 0
@@ -290,10 +280,6 @@ class ConeExtractor:
                 for i in range(wire.width):
                     precise_seeds.add(dsu.find((wname, i)))
 
-        # 4. Multi-stage fixed-point propagation across pipeline FFs and memory/ROM lookup blocks.
-        # Error tolerance on downstream signals transparently propagates through registers and
-        # memory tables to the combinational arithmetic logic (adders, multipliers, etc.) driving them.
-        # Memory primitives and sequential elements are NEVER extracted into c_safe.
         changed = True
         while changed:
             old_len = len(relax_seeds)
@@ -539,8 +525,6 @@ class ConeExtractor:
                     if wire.port_output:
                         out_ports.append({"name": wname_id.str().lstrip("\\"), "width": wire.width})
 
-            # wires_ iterates in hash-map order, which depends on the order Yosys interned names in this process
-            # (it differs between a cold run and a run served from the cache): sort, so the metadata is deterministic.
             in_ports.sort(key=lambda p: p["name"])
             out_ports.sort(key=lambda p: p["name"])
             comp_cell_types = Counter()
@@ -562,8 +546,6 @@ class ConeExtractor:
                 "feedback_registers": fb["feedback_registers"],
             })
 
-        # Which output port of each cone carries a relaxed wire (aliases resolved): the verifier needs this when the port
-        # keeps the hierarchical name of the driver (``x_adder.c``) and not the name of the relaxed wire (``x``).
         top_wires = {w_id.str(): w for w_id, w in top.wires_.items()}
         for sig_meta in relaxed_signals_meta:
             rw = top_wires.get("\\" + sig_meta["wire"])
@@ -652,22 +634,7 @@ class ConeExtractor:
                            cell_inputs: Dict[str, Set[Tuple[str, int]]], seq_cells: Set[str],
                            relax_seeds: Set[Tuple[str, int]], precise_annotated: Set[Tuple[str, int]],
                            c_safe: Set[str]) -> Dict[str, Any]:
-        """Relaxability behind internal registers.
-
-        The normal cone stops at the first register: the logic that computes a register's D input is relaxed only for
-        the registers that drive a relaxed output directly. Here relaxation is propagated backwards through
-        combinational logic and then through every register whose output is not needed precisely, to a fixed point:
-
-          precise closure P  starts from the annotated precise signals and the unannotated primary outputs; a register
-                             whose output feeds P is precise as a whole (its D input and control pins join P);
-          relaxed closure R  starts from the relaxed outputs; the output bits of registers reached by R and not in P
-                             become relaxed, so the logic computing their D inputs is relaxed too (their control
-                             pins join P).
-
-        The relaxed cells are R minus P, as in the single-stage case, so a cell that any precise signal depends on is
-        never relaxed. Returns the cell names, the arithmetic cells among them (by ``operators.core`` site id) and which
-        of them lie behind a register, i.e. outside the normal cone.
-        """
+        """Relaxability behind internal registers."""
         from axfpga.operators.core import _site_cells
 
         def canon(b: ys.SigBit) -> Optional[Tuple[str, int]]:
@@ -722,9 +689,6 @@ class ConeExtractor:
             if d:
                 r_seeds.add(d)
         while True:
-            # precise closure for the current relaxed registers
-            # Precision flows backwards from the precise signals only: a register is precise when its output is needed by
-            # one (below). A register needed only by relaxed logic is free to be approximate; one needed by nothing is dead.
             p_seeds = set(precise_annotated)
             for cname, (qs, ds, ctrl) in ff.items():
                 if any((cname, i) in relaxed_q for i in range(len(qs))):

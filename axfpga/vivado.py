@@ -1,11 +1,4 @@
-"""Vivado Batch Mode Synthesis and Area Optimization Flow for AxFPGA (Plan 1.3).
-
-Provides automated generation and execution of Xilinx Vivado batch TCL scripts
-for Zynq-7000 (Zybo xc7z010, PYNQ xc7z020) and Artix-7 targets, enforcing:
-1. Cross-boundary constant propagation: -flatten_hierarchy full -directive AreaOptimized_high
-2. Physical Area Exploration: opt_design -directive ExploreArea
-3. Physical Slice LUT, LUT6_2, and CARRY4 resource reporting.
-"""
+"""Vivado Batch Mode Synthesis and Area Optimization Flow for AxFPGA (Plan 1.3)."""
 
 from __future__ import annotations
 

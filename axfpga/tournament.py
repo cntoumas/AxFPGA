@@ -1,11 +1,4 @@
-"""Candidate Tournament.
-
-Takes an extracted Cone and a set of candidate Generators, simulates every
-Candidate against the exact Cone in a dual miter, and returns the Champion:
-the Candidate that meets the error Bound and costs the fewest FPGA Logic Cells.
-When no Candidate both meets the Bound and beats the exact Cone, the Tournament
-falls back to the exact Cone.
-"""
+"""Candidate Tournament."""
 
 from __future__ import annotations
 
@@ -27,14 +20,8 @@ from axfpga.estimator import FpgaEstimator
 
 logger = logging.getLogger("axfpga.tournament")
 
-# A Generator proposes Candidates for a Cone.
-# Called as generator(iface, work_dir, bound); iface["exact_netlist"] is the
-# normalised exact Cone path. Returns dicts with at least "name" and "path".
 Generator = Callable[[Dict[str, Any], Path, float], List[Dict[str, Any]]]
 
-# Logic cells that one DSP48E1 block is worth when candidates are ranked. Deliberately small: a saved DSP counts as a
-# saving, but a candidate never looks cheaper by replacing DSP blocks with soft logic (a soft 25x18 multiplier costs
-# several hundred logic cells, and the LUT-mapped candidates of a DSP cone use no DSP at all).
 DSP_LC_WEIGHT = 20
 
 
@@ -132,8 +119,7 @@ class Tournament:
         valid: List[Dict[str, Any]] = []
 
         def evaluate(cand: Dict[str, Any]) -> Tuple[Entry, Optional[Dict[str, Any]]]:
-            """Error and cost of one candidate on the cone: its leaderboard entry and, if within the bound, a record.
-            Pure (subprocess steps only), so candidates can be evaluated concurrently."""
+            """Error and cost of one candidate on the cone: its leaderboard entry and, if within the bound, a record."""
             sim_res = self._simulate_candidate(exact_v, Path(cand["path"]), iface, stim_hex, metric, self.work_dir)
             err = sim_res.get(metric.lower(), 1e9)
             if err > bound:
@@ -175,8 +161,6 @@ class Tournament:
             except Exception as exc:
                 logger.warning("Refinement by %r failed: %s", gen, exc)
 
-        # A saved DSP48 counts as a saving: cost = logic cells + DSP_LC_WEIGHT x DSP48 blocks. A LUT-mapped candidate of a
-        # cone that Yosys maps to DSPs uses none, but pays for it in logic cells and so does not look cheaper.
         def cost_of(m: Dict[str, Any]) -> int:
             return m["lcs"] + DSP_LC_WEIGHT * m["dsps"]
 
@@ -219,12 +203,7 @@ class Tournament:
         )
 
     def _write_exact_cone(self, iface: Dict[str, Any]) -> Path:
-        """Write the exact Cone, tying floating relaxed-bus bits to their auxiliary ports.
-
-        In extracted prefix adders (e.g. Kogge-Stone, Brent-Kung), bit 0 and the MSB
-        carry-out are emitted on auxiliary ports (e.g. \\U0.U0.U0.Po and \\U0.U0.U64.Go)
-        while the relaxed output bus leaves those bits unassigned.
-        """
+        """Write the exact Cone, tying floating relaxed-bus bits to their auxiliary ports."""
         exact_v = self.work_dir / "exact_cone_clean.v"
         mod_content = iface["raw_content"]
         rel_out = iface.get("relaxed_output")
@@ -257,10 +236,7 @@ class Tournament:
         return exact_v
 
     def remap(self, netlist: Path, out_path: Optional[Path] = None) -> Path:
-        """Xilinx 7-Series Yosys re-mapping pass on the Champion netlist.
-
-        ``out_path`` gives each concurrent caller its own output file.
-        """
+        """Xilinx 7-Series Yosys re-mapping pass on the Champion netlist."""
         remap_out = Path(out_path) if out_path else self.work_dir / "remapped_approx_cone.v"
         nodsp = bool(getattr(self.estimator, "nodsp", False))
         ckey = cache.make_key("remap", [netlist], family=self.estimator.family, nodsp=nodsp)
@@ -400,10 +376,6 @@ class Tournament:
           clean_approx[b_idx] = (approx_{rel_clean}[b_idx + {rel_lsb}] === 1'b1) ? 1'b1 : 1'b0;
         end
 """
-        # The error is the difference of the decoded values, computed one bit wider than the word so it cannot wrap.
-        # Before Phase 5 the unsigned branch evaluated -(approx - exact) at the word width, so every candidate above the
-        # exact value got an error near 2^W and was rejected, and the signed branch wrapped the same way. An explicit
-        # axc_format (iface["relaxed_format"]) selects the decoding, as on the application stream.
         rel_fmt = iface.get("relaxed_format")
         fw = rel_fmt["width"] if rel_fmt else rel_width
         kind = rel_fmt["kind"] if rel_fmt else ("s" if rel_signed else "u")

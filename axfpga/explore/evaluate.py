@@ -1,12 +1,4 @@
-"""Cone-level evaluation for the design-space exploration.
-
-Error: the candidate cone and the exact cone are simulated (iverilog) on generated input vectors: every input
-combination when the cone has at most ``EXHAUSTIVE_BITS`` input bits, otherwise ``samples`` seeded uniform vectors.
-The relaxed output is decoded in its number format and the full set of approximate-computing error metrics is
-computed in Python. Cost: Yosys ``synth_xilinx`` of the candidate cone, cost = LC + DSP_LC_WEIGHT x DSP48.
-A candidate violating an error limit is not synthesized (its cost is not needed: it is infeasible).
-Results are memoized by the candidate's text, so revisited genomes cost nothing.
-"""
+"""Cone-level evaluation for the design-space exploration."""
 
 from __future__ import annotations
 

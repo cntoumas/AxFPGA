@@ -87,8 +87,7 @@ def test_compressor_candidates_drive_the_carry_out(tmp_path):
 
 
 def test_compressor_candidates_keep_the_other_cone_outputs(tmp_path):
-    """Cone outputs other than the relaxed one (precise outputs read elsewhere in the design) used to be left undriven:
-    feasible at cone level, X in the reintegrated design (Kogge-Stone: WCE 65551)."""
+    """Cone outputs other than the relaxed one (precise outputs read elsewhere in the design) used to be left undriven:"""
     from axfpga.compressors import generate_compressor_candidates
     from axfpga.config import xilinx_cells_sim
     cone = tmp_path / "add4p.v"

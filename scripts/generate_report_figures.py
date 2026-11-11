@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Additional figures for the AxBench Zybo Z7-10 evaluation (supervisor report).
-
-Reads <out-dir>/results.json (and run_stats.json if present) and writes
-<out-dir>/figures/{error_vs_bound,pareto,power_breakdown,savings_scatter,candidates}.png.
-Complements generate_pyals_scienceplots.py (utilization, power, savings). Nothing is written outside out-dir.
-"""
+"""Additional figures for the AxBench Zybo Z7-10 evaluation (supervisor report)."""
 
 from __future__ import annotations
 

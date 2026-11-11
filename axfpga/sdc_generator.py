@@ -1,9 +1,4 @@
-"""Attribute-Driven SDC Timing Constraint Generator for Approximate Circuits.
-
-Emits relaxed timing constraints (multicycle paths or relaxed set_max_delay)
-specifically on (* axc_relax *) output ports/bits so OpenROAD and OpenSTA
-avoid aggressive buffer insertion and area inflation on approximate datapath bits.
-"""
+"""Attribute-Driven SDC Timing Constraint Generator for Approximate Circuits."""
 
 from __future__ import annotations
 

@@ -1,8 +1,4 @@
-"""Formal control-equivalence proof (FormalControlVerifier) on small sequential designs.
-
-Each case is an exact/approximate pair of the same top module with one precise output
-`ctrl` and one relaxed output `data`; only `ctrl` is compared.
-"""
+"""Formal control-equivalence proof (FormalControlVerifier) on small sequential designs."""
 
 import json
 from pathlib import Path
@@ -46,9 +42,6 @@ def test_equivalent_control_is_proven(tmp_path):
 
 
 def test_mismatch_in_first_cycles_is_falsified(tmp_path):
-    # `started` powers up 0 and is set by the first clock edge, whatever rst does: ctrl differs
-    # only in the very first time step and is unreachable afterwards. `-seq N -tempinduct`
-    # alone skips steps 1..N and would call this PROVEN.
     approx = _module(
         "assign ctrl = r[0] | ~started;",
         extra_regs="reg started; always @(posedge clk) started <= 1'b1;",
@@ -64,8 +57,6 @@ def test_permanent_mismatch_is_falsified(tmp_path):
 
 
 def test_true_but_not_inductive_property_is_bounded(tmp_path):
-    # A saturating counter never reaches 65535 from reset, but k-induction cannot show it
-    # (unreachable states 1001..65534 count up to 65535): only the bounded check succeeds.
     regs = "reg [15:0] cnt; always @(posedge clk) if (rst) cnt <= 0; else if (cnt != 16'd1000) cnt <= cnt + 1'b1;"
     exact = _module("assign ctrl = 1'b0;", extra_regs=regs)
     approx = _module("assign ctrl = (cnt == 16'hffff);", extra_regs=regs)

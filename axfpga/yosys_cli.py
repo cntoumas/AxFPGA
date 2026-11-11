@@ -1,16 +1,4 @@
-"""Yosys command line on top of the pyosys wheel (``libyosys``, Yosys 0.70).
-
-The pyosys wheel has no ``yosys`` executable, so this module provides the subset of the
-Yosys command line that AxFPGA uses, running in its own process (subprocess callers stay
-parallel-safe because libyosys global state is per process)::
-
-    python -m axfpga.yosys_cli [-q] [-p COMMANDS]... [-s SCRIPT]... [FILE]...
-    axfpga-yosys ...                       (console script, same thing)
-
-Order of execution follows the Yosys driver: input files (frontend chosen by extension),
-then ``-s`` scripts, then ``-p`` commands. ``-q`` suppresses the log on stdout; errors are
-always written to stderr and give exit code 1. ``-V`` prints the version.
-"""
+"""Yosys command line on top of the pyosys wheel (``libyosys``, Yosys 0.70)."""
 
 from __future__ import annotations
 

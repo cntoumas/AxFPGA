@@ -1,17 +1,4 @@
-"""FPGA Arithmetic Compressors for LUT6 Architectures (Xilinx 7-Series / Artix-7).
-
-Provides exact and approximate 4:2 and 5:3 compressors mapped directly to single
-fracturable 6-input LUT primitives (LUT6_2 / LUT6).
-
-In Xilinx 7-Series slices, a physical LUT6 can operate as two 5-input LUTs (O5, O6)
-sharing the same 5 inputs (I0..I4) with I5=1'b1. This allows:
-1. Exact & Approximate 4:2 compressors (4 inputs + carry-in -> Sum, Carry)
-   mapped to a SINGLE physical LUT6 with ZERO CARRY4 carry chains.
-2. Approximate 5:3 / 5:2 compressors (5 inputs -> Sum, Carry)
-   mapped to a SINGLE physical LUT6 with ZERO CARRY4 carry chains.
-3. 2-Bit Dual-Sum Addition Slices (A0, B0, Cin, A1, B1 -> Sum0, Sum1)
-   mapped to a SINGLE physical LUT6 with ZERO CARRY4 carry chains.
-"""
+"""FPGA Arithmetic Compressors for LUT6 Architectures (Xilinx 7-Series / Artix-7)."""
 
 from __future__ import annotations
 
@@ -22,36 +9,14 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("compressors")
 
-# -------------------------------------------------------------------------
-# Exact & Approximate Truth Tables (INIT strings) for LUT6_2
-# -------------------------------------------------------------------------
-# 4:2 Compressor (I0=x1, I1=x2, I2=x3, I3=x4, I4=cin, I5=1'b1):
-#   Sum   = popcount(I0..I4) % 2          -> O5 INIT[31:0]  = 32'h96696996
-#   Carry = popcount(I0..I4) >= 2         -> O6 INIT[63:32] = 32'hfffefee8
-#   Combined LUT6_2 INIT: 64'hfffefee896696996
 LUT6_2_COMP42_EXACT_INIT = "64'hfffefee896696996"
 
-# Approximate 4:2 Compressor (Momeni / Dual-output, lower switching):
-#   Sum   = (x1 ^ x2) | (x3 ^ x4)         -> O5 INIT[31:0]  = 32'h6ff66ff6
-#   Carry = (x1 & x2) | (x3 & x4)         -> O6 INIT[63:32] = 32'hf888f888
-#   Combined LUT6_2 INIT: 64'hf888f8886ff66ff6
 LUT6_2_COMP42_APPROX_INIT = "64'hf888f8886ff66ff6"
 
-# Approximate 5:3 / 5:2 Compressor (I0..I4 = 5 inputs, I5=1'b1):
-#   Compresses 5 inputs into 2 outputs (Sum, Carry) in a single LUT6_2
-#   Sum   = popcount(I0..I4) % 2          -> O5 INIT[31:0]  = 32'h96696996
-#   Carry = popcount(I0..I4) >= 2         -> O6 INIT[63:32] = 32'hfffefee8
-#   Combined LUT6_2 INIT: 64'hfffefee896696996
 LUT6_2_COMP52_APPROX_INIT = "64'hfffefee896696996"
 
-# Exact 5:3 Compressor Carry2 output (popcount >= 4 over 5 inputs):
-#   Carry2 = 1 iff popcount(I0..I4) >= 4  -> INIT = 32'he8808000
 LUT6_COMP53_C2_INIT = "64'h00000000e8808000"
 
-# 2-Bit Dual-Sum Addition Slice (I0=A0, I1=B0, I2=Cin, I3=A1, I4=B1, I5=1'b1):
-#   O5 = Sum0 = A0 ^ B0 ^ Cin             -> INIT[31:0]  = 32'h96969696
-#   O6 = Sum1 = A1 ^ B1 ^ Carry(A0,B0,Cin)-> INIT[63:32] = 32'he81717e8
-#   Combined LUT6_2 INIT: 64'he81717e896969696
 LUT6_2_DUAL_ADDER_2B_INIT = "64'he81717e896969696"
 
 
@@ -227,8 +192,7 @@ def get_compressor_definitions() -> str:
 
 
 def _upper_sum(out_n: str, ow: int, in1_n: str, in2_n: str, w: int, k: int, carry: str, tag: str) -> List[str]:
-    """Exact sum of operand bits [w-1:k] plus the carry into bit k, driving every output bit from k up (carry-out
-    included: the output bus is often one bit wider than the operands, and an undriven MSB read as X)."""
+    """Exact sum of operand bits [w-1:k] plus the carry into bit k, driving every output bit from k up (carry-out"""
     if ow <= k:
         return []
     return [f"  wire [{ow - k - 1}:0] {tag} = {in1_n}[{w - 1}:{k}] + {in2_n}[{w - 1}:{k}] + {carry};" if w > k else
@@ -294,8 +258,6 @@ def generate_compressor_candidates(
         in1 = multibit_inputs[0]
         in2 = multibit_inputs[1]
         out_target = next((o for o in multibit_outputs if o.get("name") == rel_out), multibit_outputs[0])
-        # Outputs other than the target keep the exact cone's logic: an instance of the exact cone drives them (its
-        # copy of the target is left unconnected and removed by synthesis). They used to be declared but undriven.
         header_ports = [t.strip().split()[-1] for t in port_list.split(",") if t.strip()]
         exact_conns = ", ".join("_exact_target_unused" if n == out_target["name"] else fmt_sig(n) for n in header_ports)
         exact_inst = [] if len(outputs) <= 1 else [

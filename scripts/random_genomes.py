@@ -77,8 +77,7 @@ def check_problems(path: Path, top: str) -> Optional[int]:
 
 
 def elaboration(final: Path, top: str, exact_top: str) -> Dict[str, Any]:
-    """``elaborates``: ``hierarchy -check; proc`` succeed. ``new_check_problems``: more ``check`` problems than the exact
-    design (the AxBench sources already have undriven wires, so the count is compared, not asserted)."""
+    """``elaborates``: ``hierarchy -check; proc`` succeed. ``new_check_problems``: more ``check`` problems than the exact"""
     n = check_problems(final, top)
     if n is None:
         return {"elaborates": False, "error": "elaboration failed"}
@@ -145,8 +144,6 @@ def run_design(args: Dict[str, Any]) -> Dict[str, Any]:
         summary["note"] = f"no cone ({meta.get('status')})"
         return summary
     extracted = d / "extracted_cone.v"
-    # The operators act on the Tournament's cleaned exact cone, as in the pipeline: the raw extracted cone can leave
-    # relaxed-bus bits undriven (prefix adders), which the SAT proof treats as free.
     clean = d / "pyals_run" / "exact_cone_clean.v"
     cone = clean if clean.exists() else extracted
     mod = first_module(cone)

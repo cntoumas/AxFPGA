@@ -1,8 +1,4 @@
-"""Number formats of a relaxed output word: unsigned, two's complement, sign-magnitude, optional fractional bits.
-
-``decode`` reproduces scripts/axbench_apps.decode bit for bit; ``decode_real`` / ``encode`` reproduce
-sm_decode / sm_encode for the sign-magnitude kind.
-"""
+"""Number formats of a relaxed output word: unsigned, two's complement, sign-magnitude, optional fractional bits."""
 
 from __future__ import annotations
 

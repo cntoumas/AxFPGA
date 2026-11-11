@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Figures for the AxBench Zybo Z7-10 evaluation.
-
-Reads <out-dir>/results.json (written by run_pyals_yosys_suite.py) and writes
-<out-dir>/figures/{utilization,power,savings}.png. Nothing is written outside out-dir.
-"""
+"""Figures for the AxBench Zybo Z7-10 evaluation."""
 
 from __future__ import annotations
 

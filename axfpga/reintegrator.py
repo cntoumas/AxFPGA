@@ -1,9 +1,4 @@
-"""Design Re-integrator.
-
-Stitches the extracted parent shell (top_shell.v) and the approximated
-submodule gate netlist (approx_cone.v) into a unified netlist (final_approx_top.v)
-ready for physical design and verification.
-"""
+"""Design Re-integrator."""
 
 from __future__ import annotations
 

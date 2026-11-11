@@ -1,23 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark-suite evaluation of AxFPGA on the Zybo Z7-10 (xc7z010clg400-1), Yosys only.
-
-Designs (--group): the 13 AxBench designs ("axbench") and the Phase-4 set ("phase4": the behavioural-multiplier
-variants of the AxBench multiplier designs and four larger designs written for this repository, benchmarks/*/).
-Designs larger than the xc7z010 are evaluated on the xc7z020 and labelled with its part.
-
-Per benchmark:
-1. Yosys synth_xilinx of the exact design (DSP inference always on).
-2. (* axc_relax *)/(* axc_precise *) annotation and safe Cone extraction.
-3. pyALS Candidate Tournament on the Cone; reintegration into the top.
-4. Yosys synth_xilinx of the approximate design.
-5. Random-stimulus miter (iverilog) + Yosys SAT formal control/WCE proofs;
-   fallback to the exact design if the top-level WCE exceeds the bound.
-6. Application-level metric (benchmarks/axbench plugins, selected by the axc_* attributes in annotations.py) on
-   exact vs approximate RTL; the same attributes give the format and every constraint. Held-out stream reported.
-7. Activity-based dynamic power (axfpga/activity_power.py) of both mapped netlists.
-
-Outputs (in --out-dir, default reports/): results.json, results.csv, report.md.
-"""
+"""Benchmark-suite evaluation of AxFPGA on the Zybo Z7-10 (xc7z010clg400-1), Yosys only."""
 
 from __future__ import annotations
 
@@ -66,9 +48,6 @@ BUILD_DIR = AXFPGA_ROOT / "build" / "pyals_yosys_run"
 REPORTS_DIR = AXFPGA_ROOT / "reports"
 INNER_JOBS = 3                 # concurrent candidate evaluations inside one benchmark (--inner-jobs)
 
-# Scheduling hints for --jobs > 1. Relative run time orders the queue (longest first);
-# EST_GB is the peak resident memory of one concurrent synthesis (tune from build/*/stats.json);
-# BASE_GB is the benchmark process itself (python + pyosys + numpy).
 EST_COST = {"sobel_npu": 100, "kinematics_inv": 60, "neural_network": 40, "multiplier_32b": 25, "kinematics_fwd": 15,
             # Phase 4 designs: first estimates, not yet measured (tune from build/*/stats.json after the first run)
             "sobel_npu_bhv": 80, "kinematics_inv_bhv": 40, "fft64_psd": 30, "image_pipeline": 20, "conv2d_3x3": 20,
@@ -313,11 +292,7 @@ def _behavioural_variant(b: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _phase4_suite(axbench: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Phase 4: behavioural-multiplier variants (DSP inference becomes possible) and four larger designs.
-
-    The larger designs are written for this repository (benchmarks/<design>/: RTL + plugin, no third-party code).
-    Their quality targets (annotations.py) are provisional until the first full run.
-    """
+    """Phase 4: behavioural-multiplier variants (DSP inference becomes possible) and four larger designs."""
     by_id = {b["id"]: b for b in axbench}
     ann = _annotations_module()
     suite = [_behavioural_variant(by_id[i]) for i in ann.BEHAVIOURAL_VARIANTS]
@@ -345,16 +320,12 @@ def _phase4_suite(axbench: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 
-# Fixes for defects in the AxBench sources: (file name, old text, new text), applied to private copies.
-# Benchmarks left out of a default run (still runnable with -b <id>), with the reason shown in the report.
 EXCLUDED: Dict[str, str] = {
     "sobel_npu": "out of memory on the 15 GB evaluation machine (Yosys synthesis ~6.7 GB, iverilog miter >9 GB "
                  "for the 42k-LUT patched design); revisited in Phase 3/4",
 }
 
 RTL_PATCHES: Dict[str, List[Tuple[str, str, str]]] = {
-    # sobel.nn perceptron_fixed instantiates qmult without clk/rst: every multiplier register is unclocked
-    # and the design synthesizes to a constant. Wire clk through; tie the active-high rst low.
     "sobel_npu": [
         ("perceptron_fixed.v", "mul_tmp[bitwidth-1:0], over[0]);", "mul_tmp[bitwidth-1:0], over[0], clk, 1'b0);"),
         ("perceptron_fixed.v", "mul_tmp[bitwidth*i+bitwidth-1 -: bitwidth],over[i]);", "mul_tmp[bitwidth*i+bitwidth-1 -: bitwidth],over[i], clk, 1'b0);"),
@@ -376,11 +347,7 @@ def _annotations() -> Dict[str, Dict[str, Any]]:
 
 
 def define_benchmark_suite() -> List[Dict[str, Any]]:
-    """Every suite design (AxBench and Phase 4) with its quality attributes applied.
-
-    Budgets, number format, application metric and stimulus all come from annotations.py: the pipeline sees them as
-    axc_* attributes on the relaxed wire, exactly as for a user design.
-    """
+    """Every suite design (AxBench and Phase 4) with its quality attributes applied."""
     suite = _raw_benchmark_suite()
     ann = _annotations()
     for b in suite:
@@ -757,8 +724,6 @@ def main():
         BUILD_DIR.mkdir(parents=True, exist_ok=True)
         t0 = time.time()
         logger.info("Suite run: %d design(s), DSP inference %s, build %s", len(suite), "off" if nodsp else "on", BUILD_DIR)
-        # Every benchmark runs in its own process, also with --jobs 1: libyosys keeps global state (name counters), so
-        # benchmarks sharing a process would give results that depend on the run order and on --jobs.
         failed = run_suite(suite, run_out, max(1, args.jobs), max(1, args.inner_jobs), budget_gb, nodsp)
         failed_any += [f"{i} (dsp {'off' if nodsp else 'on'})" for i in failed]
         ids = {b["id"] for b in suite} - set(failed)

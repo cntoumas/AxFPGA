@@ -1,14 +1,4 @@
-"""Tournament generator for the RTL-level operators (axfpga.operators.core) with greedy stacking.
-
-``__call__`` produces the first menu of candidates: operand truncation of every arithmetic site at one depth ("all"),
-of single sites, and output truncation, each with the correction constants ``zero`` and ``mid`` (and ``max`` for the
-output). ``refine`` is the greedy second stage ("technique stacking"): starting from the cheapest candidate that met
-the bound, it tries one more step on one site at a time (a deeper truncation, a new site, the output site), keeps the
-best step that still meets the bound and lowers the cone cost, and repeats within an evaluation budget. Every
-evaluation is a full Tournament score (cone simulation against the bound, then synthesis), so every accepted step
-meets every cone constraint; the pipeline then re-checks the stacked design on the application stream, the held-out
-gate and the formal proofs, like any other candidate.
-"""
+"""Tournament generator for the RTL-level operators (axfpga.operators.core) with greedy stacking."""
 
 from __future__ import annotations
 
@@ -122,8 +112,7 @@ class OperatorGenerator:
 
     @classmethod
     def from_env(cls) -> "OperatorGenerator":
-        """AXFPGA_OPS: ``all`` (default), ``nocomp`` (plain truncation), ``nostack`` (no stacking), ``off``.
-        The switch exists for the Phase-5 ablations; the default is the full operator set."""
+        """AXFPGA_OPS: ``all`` (default), ``nocomp`` (plain truncation), ``nostack`` (no stacking), ``off``."""
         mode = os.environ.get("AXFPGA_OPS", "all").strip().lower()
         if mode == "off":
             return cls(enabled=False)
@@ -158,8 +147,7 @@ class OperatorGenerator:
 
     def refine(self, iface: Dict[str, Any], work_dir: Path, bound: float, valid: List[Dict[str, Any]],
                score_many: Callable[[Sequence[Dict[str, Any]]], List[Optional[Dict[str, Any]]]], base_lcs: int) -> List[Dict[str, Any]]:
-        """Greedy stacking from the cheapest operator candidate. ``score_many`` evaluates candidates (the Tournament's
-        scoring, concurrently) and returns a record for each one within the bound, else None."""
+        """Greedy stacking from the cheapest operator candidate. ``score_many`` evaluates candidates (the Tournament's"""
         if not self.enabled or not self.stacking or not self.sites:
             return []
         starts = [v for v in valid if "genome" in v and v["lcs"] < base_lcs]

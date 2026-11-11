@@ -1,14 +1,4 @@
-"""FPGA Resource and Utilization Estimator for AxFPGA.
-
-Synthesizes Verilog netlists to target FPGA architectures (primarily Xilinx 7-Series / Artix-7)
-using Yosys `synth_xilinx` and extracts physical resource utilization metrics:
-- 6-input LUTs (LUT1..LUT6 total and breakdown)
-- Dedicated fast-carry chains (CARRY4)
-- Flip-Flop registers (FDRE, FDCE, FDSE, FDPE)
-- Digital Signal Processing blocks (DSP48E1)
-- Estimated Logic Cells (LCs)
-- Device footprint percentage on target FPGA (e.g., Artix-7 XC7A35T or XC7A100T)
-"""
+"""FPGA Resource and Utilization Estimator for AxFPGA."""
 
 from __future__ import annotations
 
@@ -98,8 +88,6 @@ class FpgaEstimator:
             res, fdir = hit
             if (not out_mapped_vlog or cache.restore(fdir, "mapped.v", out_mapped_vlog)) and \
                     (not out_mapped_json or cache.restore(fdir, "mapped.json", out_mapped_json)):
-                # The cache key has no device (synthesis does not depend on it): the device fields of a hit
-                # may come from another estimator, so they are recomputed for this one.
                 return self._device_fields(dict(res))
         dsp_flag = "-nodsp" if self.nodsp else ""
         out_vlog_cmd = f"write_verilog -noattr {out_mapped_vlog};" if out_mapped_vlog else ""
@@ -221,8 +209,7 @@ class FpgaEstimator:
         return dict(result)
 
     def _device_fields(self, res: Dict[str, Any]) -> Dict[str, Any]:
-        """Set the device name, capacity and utilization percentages of a synthesis result for self.device
-        (same formulas as evaluate_netlist)."""
+        """Set the device name, capacity and utilization percentages of a synthesis result for self.device"""
         cap = self.device_capacity
         res["device"] = self.device
         res["device_capacity"] = cap

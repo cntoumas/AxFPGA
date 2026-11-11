@@ -1,11 +1,4 @@
-"""AxFPGA: Attribute-Driven Approximate Logic Synthesis & Verification Framework for FPGAs.
-
-Optimized natively for Xilinx 7-Series / Artix-7 Architectures.
-Approximation Engine:
-- Strictly pyALS / pyALSlib / pyALS-lut-catalog (Salvatore Barone): Catalog-based AIG-rewriting Approximate Engine.
-- Multi-objective K-LUT rewriting, truth-table distance substitution, and cut pruning.
-- Attribute-driven taint isolation and formal SAT verification.
-"""
+"""AxFPGA: Attribute-Driven Approximate Logic Synthesis & Verification Framework for FPGAs."""
 
 from axfpga.alu_splitter import AluSplitter
 from axfpga.budgeter import CascadedBudgeter

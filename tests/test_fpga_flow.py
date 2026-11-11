@@ -29,8 +29,6 @@ def test_fpga_end_to_end_flow_mac(tmp_path: Path):
 
     summary = flow.run()
 
-    # mac's annotated budget (MED 64 on a 24-bit accumulator) may leave no qualifying candidate; the flow then
-    # keeps the exact design. Either way the run completes and reports every formal status.
     assert summary["flow_status"] in ("SUCCESS", "NO_APPROXIMATION")
     assert summary["target"] == "fpga"
     assert summary["dsp"] is False

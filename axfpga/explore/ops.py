@@ -1,20 +1,4 @@
-"""Per-site RTL operators on a word-level cone netlist (pyosys), for the design-space exploration.
-
-Runs in a subprocess (``python -m axfpga.explore.ops spec.json result.json``): libyosys keeps global state.
-
-Site kinds (ids are stable across runs):
-  add@ / sub@ / mul@<file:line.col-line.col>   arithmetic cells (``axfpga.operators.core._site_cells``)
-  wire@<name>                                  named multi-bit wire of the cone (input ports included)
-  out@<name>                                   the relaxed output bus
-
-Operators (a gene is ``{"op": ..., "k": int, "comp": "zero"|"mid"}``; k = 0 leaves the site untouched):
-  trunc   arithmetic cell: k operand LSBs tied to 0, freed output bits driven by the correction constant
-  wire    named wire: every read of its k LSBs sees the correction constant instead
-  out     relaxed output bus: its k LSBs are driven by the correction constant
-  loa     adder: lower-part OR adder, k low bits OR-ed, carry into the upper part = a[k-1] & b[k-1]
-  nibble  adder: the k low 4-bit segments are added without carries between them (segmented carry chain)
-  ppg     multiplier: partial products a_i * b_j with i + j < k removed (Baugh-Wooley array for signed operands)
-"""
+"""Per-site RTL operators on a word-level cone netlist (pyosys), for the design-space exploration."""
 
 from __future__ import annotations
 
@@ -253,8 +237,6 @@ def _apply_ppg(module, cell, k: int) -> None:
             if r is not None:
                 pos.append(r)
     else:
-        # Baugh-Wooley: sum_{i<n-1,j<m-1} a_i b_j 2^(i+j) + a_{n-1} b_{m-1} 2^(n+m-2)
-        #               - sum_{j<m-1} a_{n-1} b_j 2^(n-1+j) - sum_{i<n-1} a_i b_{m-1} 2^(i+m-1)
         for j in range(m - 1):
             r = row(a_bits[:n - 1], b_bits[j], j, lambda i, j=j: i + j >= k)
             if r is not None:

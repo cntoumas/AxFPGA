@@ -1,9 +1,4 @@
-"""Cascaded Multi-Cone Budgeting Engine for AxSYS (Phase 3).
-
-Implements iterative error budget tightening loop for multi-stage pipelines:
-    B_i^(k+1) = B_i^(k) * (B_top / E_top) * 0.9
-until top-level error E_top <= B_top.
-"""
+"""Cascaded Multi-Cone Budgeting Engine for AxSYS (Phase 3)."""
 
 from __future__ import annotations
 

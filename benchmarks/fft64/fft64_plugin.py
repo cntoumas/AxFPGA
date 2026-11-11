@@ -1,12 +1,4 @@
-"""fft64_psd (Phase 4): complex baseband with two tones plus noise, power-spectrum SQNR.
-
-Input: 40 blocks of 64 complex samples (16-bit two's complement, |re|, |im| <= 2^14), in_valid always 1:
-a tone of amplitude 6000 on bin 5, a tone of amplitude 3000 between bins (13.37, so it leaks into its neighbours)
-and complex Gaussian noise (sigma 200 per component); then 128 zero samples flush the 63-sample delay lines.
-Held-out stream: derived noise seed, random tone phases and a different off-bin frequency.
-Metric: SQNR of the approximate power spectrum against the exact one. Extra: per-64-sample-window agreement of the
-strongest bin (the windows need not be aligned to FFT blocks: exact and approximate are compared position by position).
-"""
+"""fft64_psd (Phase 4): complex baseband with two tones plus noise, power-spectrum SQNR."""
 
 import importlib.util as _u
 import pathlib as _p

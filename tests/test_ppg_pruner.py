@@ -41,8 +41,6 @@ module UB1BPPG_3_3(O, IN1, IN2);
 endmodule
 """
     pruner = PpgPruner()
-    # Prune with depth k = 2: i+j < 2 => UB1BPPG_0_0 (0+0=0) and UB1BPPG_1_0 (1+0=1) are pruned.
-    # UB1BPPG_3_3 (3+3=6) is untouched.
     mod_code, count = pruner.prune_code_ppg(sample_vlog, depth=2)
     assert count == 2
     assert "assign O = 1'b0;" in mod_code

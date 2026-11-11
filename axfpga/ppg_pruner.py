@@ -1,20 +1,4 @@
-"""Partial Product Generation (PPG) Matrix Anti-Diagonal Pruner for Multipliers.
-
-Part of AxFPGA Plan 2 (Pillar 2).
-Targets Wallace-tree multipliers (e.g. Multiplier_15_0_1000, Multiplier_31_0_3000)
-composed of UB1BPPG_i_j cells or explicit AND array matrices.
-
-Key Capabilities:
-1. Anti-Diagonal Depth Calculation:
-   Computes maximum safe truncation depth k such that:
-   sum_{w=0}^{k-1} (w + 1) * 2^w <= bound
-2. Structural PPG Pruning:
-   Replaces UB1BPPG_i_j modules where i + j < k with constant zero assignments:
-     assign O = 1'b0;
-3. Yosys Downstream Wallace Tree Optimization:
-   Invokes Yosys `proc; opt_clean -purge; opt_expr; opt_merge; clean` to eliminate dead downstream
-   half-adders and full-adders.
-"""
+"""Partial Product Generation (PPG) Matrix Anti-Diagonal Pruner for Multipliers."""
 
 from __future__ import annotations
 
@@ -38,10 +22,7 @@ class PpgPruner:
 
     @staticmethod
     def calculate_worst_case_error(depth: int) -> int:
-        """Calculate the theoretical maximum worst-case error for anti-diagonal depth k.
-        
-        WCE = sum_{w=0}^{k-1} (w + 1) * 2^w
-        """
+        """Calculate the theoretical maximum worst-case error for anti-diagonal depth k."""
         wce = 0
         for w in range(depth):
             terms = w + 1

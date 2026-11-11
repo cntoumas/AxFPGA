@@ -1,8 +1,4 @@
-"""Raw ``axc_*`` attribute dict -> validated :class:`WireQuality`.
-
-Pure Python (no pyosys): the cone extractor decodes the Yosys attributes and
-passes a plain ``{"axc_format": "sm16q9", ...}`` mapping here.
-"""
+"""Raw ``axc_*`` attribute dict -> validated :class:`WireQuality`."""
 
 from __future__ import annotations
 

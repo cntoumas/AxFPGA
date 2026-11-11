@@ -1,11 +1,4 @@
-"""conv2d_3x3 (Phase 4): 3x3 RGB windows of a 34x34 image through one convolution kernel, feature-map PSNR.
-
-Kernel: the 3x3 emboss filter ((-2,-1,0), (-1,1,1), (0,1,2)) applied to luma, split over the R, G, B channels with
-the BT.601 weights (0.299, 0.587, 0.114) and scaled by 2^6 (the RTL SHIFT). The kernel sums to 1, so the output is
-the luma plus a directional gradient and uses the whole 0..255 range; ReLU clips only dark edges. It stands for a
-trained first-layer filter (oriented edge detector); AxBench has no trained CNN weights.
-Tuning stream: peppers.png; held-out stream: baboon.gaussian.jpg (both from the AxBench checkout).
-"""
+"""conv2d_3x3 (Phase 4): 3x3 RGB windows of a 34x34 image through one convolution kernel, feature-map PSNR."""
 
 import importlib.util as _u
 import pathlib as _p

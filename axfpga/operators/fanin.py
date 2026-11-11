@@ -1,14 +1,4 @@
-"""Structural fan-in hashes of signals (property check: approximation never changes what a precise signal depends on).
-
-``fanin_hashes(verilog, top, signals)`` flattens the design (``proc; flatten; opt_clean``, no other optimization) and
-returns, for each requested port or wire, a hash of its transitive fan-in. The hash is a Weisfeiler-Lehman refinement
-of the cell graph: a cell's label starts as its type and parameters and is repeatedly replaced by a hash of itself and
-the labels of the drivers of its input bits, so it does not depend on cell or wire names (Yosys renumbers them from run
-to run) and it follows feedback loops. Primary inputs are labelled by name and bit. Two designs give the same hash for
-a signal iff the signal's fan-in has the same structure up to ``rounds`` cells deep.
-
-Run in a subprocess by default: ``python -m axfpga.operators.fanin VERILOG TOP SIG [SIG...]`` prints JSON.
-"""
+"""Structural fan-in hashes of signals (property check: approximation never changes what a precise signal depends on)."""
 
 from __future__ import annotations
 
@@ -95,8 +85,7 @@ def compute(verilog: str, top: str, signals: Sequence[str], rounds: int = ROUNDS
 
 
 def precise_signals(verilog: str, top: str) -> List[str]:
-    """Names of the top-level ports that must stay precise: ``axc_precise`` ports and primary outputs that are not
-    ``axc_relax`` (an unannotated output defaults to precise, as in the cone extractor)."""
+    """Names of the top-level ports that must stay precise: ``axc_precise`` ports and primary outputs that are not"""
     from pyosys import libyosys as ys
     d = ys.Design()
     ys.run_pass(f"read_verilog -sv {verilog}; hierarchy -check -top {top}", d)

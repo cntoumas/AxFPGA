@@ -1,21 +1,5 @@
 #!/usr/bin/env python3
-"""Compare the search algorithms of the design-space exploration on a fixed set of cones.
-
-For each design (its extracted cone and limits taken from a finished suite run), the truncation technique is explored
-by every algorithm with several seeds and the same evaluation budget. Reported per run: best feasible cost, hypervolume
-of the archive's Pareto front (reference: exact cost x error limit), evaluations to reach 95 % of the run's saving.
-Summary: mean / std per algorithm and design, mean rank, and significance with the designs as blocks: Friedman test
-over the per-design mean savings, one-sided Wilcoxon signed-rank of each algorithm against random search on the
-per-design means, and per-design one-sided Mann-Whitney U against random (seeds as samples); p-values Holm-corrected
-over the algorithms. Designs where every algorithm reaches the same saving (exhaustively enumerated or trivial
-spaces) carry no information and are listed apart.
-
-One task per (design, algorithm, seed); rows are appended to OUT/runs_partial.jsonl as they finish, so a resubmitted
-job skips the runs already done. A failing run is recorded with its error and left out of the statistics.
-
-    python scripts/compare_algorithms.py --run-build build/final --run-results reports/final/results.json \
-        --out reports/explore/algorithms
-"""
+"""Compare the search algorithms of the design-space exploration on a fixed set of cones."""
 from __future__ import annotations
 
 import argparse

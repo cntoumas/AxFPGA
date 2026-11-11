@@ -1,15 +1,4 @@
-"""pyALS Approximate Logic Synthesis Bridge for AxFPGA.
-
-Integrates Salvatore Barone's Catalog-based AIG-rewriting ALS engine (pyALS / pyALSlib / pyALS-lut-catalog)
-as the native FPGA approximation engine for AxFPGA, replacing the ASIC-centric AxLS.
-
-Key Capabilities:
-1. Native 4-LUT / K-LUT Graph Extraction via Pyosys (YosysHelper, ALSGraph).
-2. Approximate LUT Catalog querying (ALSCatalogCache & lut_catalog.db).
-3. Selective AIG Rewriting substituting multi-gate sub-trees with approximate lower-depth / lower-gate LUTs.
-4. AMOSA Multi-Objective Optimization / Direct Distance-k Rewriting under error bounds (MED, WCE, ER).
-5. Seamless integration with AxFPGA's Xilinx 7-Series Artix-7 Estimator and Tournament Arbiter.
-"""
+"""pyALS Approximate Logic Synthesis Bridge for AxFPGA."""
 
 from __future__ import annotations
 
@@ -75,14 +64,7 @@ class PyAlsBridge:
         return parse_cone_interface(self.cone_vlog, self.meta_json)
 
     def generate_catalog_candidates(self, bound: float, exact_cone_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
-        """Map cone to 4-LUT network and generate approximate candidate netlists from lut_catalog.db.
-        
-        Applies:
-        - Phase 1.1: Pre-YosysHelper arithmetic extraction and 4-bit nibble splitting
-        - Phase 1.2: Support-set and input-dropping filter prioritizing LUTs that drop inputs
-        - Plan 2 (Pillar 1): LOA (Lower-part OR Adder) candidates
-        - Plan 2 (Pillar 2): Wallace Multiplier PPG matrix truncation candidates
-        """
+        """Map cone to 4-LUT network and generate approximate candidate netlists from lut_catalog.db."""
         iface = self._parse_cone_interface()
         top_name = iface["module_name"]
         candidates: List[Dict[str, Any]] = []
@@ -120,8 +102,6 @@ class PyAlsBridge:
         except Exception as exc:
             logger.warning("Could not generate PPG pruner candidates: %s", exc)
 
-        # Phase 1.1: Pre-YosysHelper Arithmetic Extraction and 4-Bit Nibble Splitting
-        # Protects wide $alu cells (W >= 8) so techmap does not shatter hard CARRY4 chains
         from axfpga.alu_splitter import AluSplitter
         design = ys.Design()
         lut_netlist = self.work_dir / "exact_lut_cone.v"
@@ -143,8 +123,6 @@ class PyAlsBridge:
 
         content = lut_netlist.read_text(encoding="utf-8")
 
-        # Discover all LUT assignments and cells in the netlist:
-        # Pattern A: assign wire = 16'h7800 >> { ... };
         lut_assign_pat = re.compile(
             r"assign\s+([A-Za-z0-9_\[\]\\]+)\s*=\s*(\d+)'h([0-9a-fA-F]+)\s*>>\s*\{([^}]+)\};"
         )
@@ -163,9 +141,6 @@ class PyAlsBridge:
         if total_luts == 0:
             return candidates
 
-        # -------------------------------------------------------------
-        # Phase 1.2: Support-Set / Input-Dropping Filter (Pattern A)
-        # -------------------------------------------------------------
         for dist in [1, 2, 3, 4]:
             mod_content = content
             num_replaced = 0
@@ -231,9 +206,6 @@ class PyAlsBridge:
                             "replaced_luts": num_replaced,
                         })
 
-        # -------------------------------------------------------------
-        # Phase 1.2: Support-Set / Input-Dropping Filter (Pattern B: $lut cells)
-        # -------------------------------------------------------------
         for dist in [1, 2, 3, 4]:
             mod_content = content
             num_replaced = 0
@@ -264,9 +236,6 @@ class PyAlsBridge:
                     "input_dropping": True,
                 })
 
-        # -------------------------------------------------------------
-        # Phase 1.1 Action Item 2: 4-Bit Aligned Carry Truncation (CI = 1'b0)
-        # -------------------------------------------------------------
         carry_ci_pat = re.compile(r"(\.CI\s*\(\s*)carry_lsb_\d+\[\d+\](\s*\))")
         if carry_ci_pat.search(content):
             trunc_content = carry_ci_pat.sub(r"\g<1>1'b0\g<2>", content)

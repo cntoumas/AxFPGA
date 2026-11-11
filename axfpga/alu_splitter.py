@@ -1,15 +1,4 @@
-"""Arithmetic Carry-Chain Protection and 4-Bit Nibble Splitting for AxFPGA (Plan 1.1).
-
-Pre-processes RTL designs to prevent Yosys `techmap; abc -lut 4` from shattering
-dedicated arithmetic `$alu` (CARRY4) chains into inefficient soft-LUT trees.
-
-Key Capabilities:
-1. Pre-YosysHelper Arithmetic Extraction: Identifies `$alu` cells with bit-width W >= 8.
-2. 4-Bit Nibble-Aligned Splitting: Partitions wide `$alu` cells at 4k-bit boundaries:
-   - Upper (W - 4k) MSBs are wrapped into a protected exact `$alu` module
-     with keep_hierarchy / blackbox attributes to guarantee hard CARRY4 inference in Vivado.
-   - Lower 4k LSBs are exposed for pyALS K-LUT catalog approximation or carry truncation.
-"""
+"""Arithmetic Carry-Chain Protection and 4-Bit Nibble Splitting for AxFPGA (Plan 1.1)."""
 
 from __future__ import annotations
 
@@ -34,12 +23,7 @@ class AluSplitter:
         approx_nibble_bits: int = 4,
         constant_ci: bool = False,
     ):
-        """
-        Args:
-            min_width: Minimum ALU width to trigger carry-chain protection (default >= 8).
-            approx_nibble_bits: Number of LSB bits to expose (must be multiple of 4, e.g. 4 or 8).
-            constant_ci: If True, tie carry-in to MSB adder to 1'b0 (carry-chain truncation).
-        """
+        """Args:"""
         self.min_width = min_width
         self.approx_nibble_bits = approx_nibble_bits
         self.constant_ci = constant_ci
@@ -339,12 +323,7 @@ class AluSplitter:
         bound: float,
         work_dir: Path,
     ) -> List[Dict[str, Any]]:
-        """Generate Lower-part OR Adder (LOA) candidates for structural/behavioral adders and subtractors.
-        
-        Part of AxFPGA Plan 2 (Pillar 1).
-        Replaces the lower k bits of sum with bitwise OR: S[k-1:0] = A[k-1:0] | B[k-1:0]
-        and severs the carry propagation into the upper exact adder (CI = 1'b0).
-        """
+        """Generate Lower-part OR Adder (LOA) candidates for structural/behavioral adders and subtractors."""
         import math
         import subprocess
 

@@ -1,9 +1,4 @@
-"""Top-level flow and CLI for attribute-driven approximate computing on FPGA.
-
-Reads Verilog sources annotated with (* axc_relax *) / (* axc_precise *) / (* axc_bound *), runs the pipeline
-(axfpga/pipeline.py: exact synthesis, design-level PPG pruning, pyALS Candidate Tournament with fallback,
-simulation and formal checks, power) and adds the SDC timing constraints and a Vivado script.
-"""
+"""Top-level flow and CLI for attribute-driven approximate computing on FPGA."""
 
 from __future__ import annotations
 
@@ -69,8 +64,6 @@ class AxcFlow:
         self.stimulus = str(Path(stimulus_file).resolve()) if stimulus_file else None   # overrides axc_stimulus
         self.plugin = str(Path(plugin).resolve()) if plugin else None                   # overrides axc_plugin
         self.seed = seed                                                                # overrides axc_seed
-        # Accepted for API compatibility (sweep/budgeter); the pipeline fixes these: 1000-cycle miter, 120 s SAT
-        # timeout, formal checks always on, random stimulus.
         ignored = []
         if not enable_formal:
             ignored.append("enable_formal=False")
@@ -129,8 +122,6 @@ class AxcFlow:
                        "reason": f"relaxed signal {wire!r} is not an output port of {top}; error statistics need a top output"}
             (self.output_dir / "flow_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
             return summary
-        # evaluator=None: run_design builds the QualityEvaluator from the axc_* attributes of the relaxed wire
-        # (no attributes: seeded random stimulus, modular error, only the formal bound as constraint).
         spec = DesignSpec(id=top, top=top, files=self.input_files, relax_wire=wire, bound=bound, metric=metric,
                           annotated=True, med_limit=None, mred_limit=None, samples=max(self.sim_samples, 64),
                           signed=self._is_signed(self.input_files, wire), stimulus=self.stimulus, plugin=self.plugin,
@@ -233,8 +224,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         fpga_device=args.fpga_device,
         dsp=(args.dsp == "on") and not args.nodsp,
     )
-    # Yosys (in-process) writes its log to fd 1 through C stdio: point fd 1 at stderr while the flow runs, flush the
-    # C buffers before restoring it, then print the JSON result.
     sys.stdout.flush()
     saved = os.dup(1)
     os.dup2(2, 1)
