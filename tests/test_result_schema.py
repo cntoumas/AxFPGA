@@ -10,7 +10,7 @@ jsonschema = pytest.importorskip("jsonschema")
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA = json.loads((ROOT / "docs" / "schema" / "result.schema.json").read_text())
-ANCHOR = json.loads((ROOT / "docs" / "phases" / "phase-0" / "results.stripped.json").read_text())
+ANCHOR = json.loads((ROOT / "tests" / "data" / "results_anchor.json").read_text())
 
 
 def _with_cert(r):

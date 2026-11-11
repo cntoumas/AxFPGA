@@ -57,7 +57,7 @@ def test_export_headline_tables_only_certified(tmp_path):
         spec.loader.exec_module(suite)
     finally:
         sys.path.pop(0)
-    base = json.loads((ROOT / "docs" / "phases" / "phase-0" / "results.stripped.json").read_text())
+    base = json.loads((ROOT / "tests" / "data" / "results_anchor.json").read_text())
     good = next(r for r in base if r["id"] == "brent_kung_16b")
     bad = json.loads(json.dumps(good))
     bad.update(id="brent_kung_32b", name="BAD DESIGN")

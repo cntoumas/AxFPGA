@@ -1,0 +1,2390 @@
+[
+ {
+  "app": {
+   "extra": {
+    "MRED_pct": 0.0005504471478072722,
+    "NMED": 1.917535788491225e-06
+   },
+   "name": "SQNR",
+   "note": "uniform random operands",
+   "pass": true,
+   "samples": 3000,
+   "threshold": ">= 30.0 dB",
+   "unit": "dB",
+   "value": 102.98048340694898
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 4,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 0.7726,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 24,
+   "lut_util_pct": 0.091,
+   "luts": 16,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 4,
+     "power_mw": 0.3802,
+     "toggles": 30414
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 17,
+     "power_mw": 0.3925,
+     "toggles": 15698
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 102.98048340694898,
+    "candidate": "pyALS_loa_1b",
+    "cone_baseline_lcs": 36,
+    "cone_lcs": 24,
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "PROVEN",
+    "lcs": 24,
+    "luts": 16,
+    "med": 0.25133333333333335,
+    "mred_pct": 0.0005504471478072722,
+    "outcome": "accepted",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 1.0
+   }
+  ],
+  "bound": 15.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Prefix Adder Arithmetic",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.2513,
+   "med": 0.2513,
+   "mred_pct": 0.0006,
+   "wce": 1.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 1.0434,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 44,
+   "lut_util_pct": 0.25,
+   "luts": 44,
+   "power_breakdown": {
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 88,
+     "power_mw": 1.0058,
+     "toggles": 40230
+    },
+    "MUXF": {
+     "active_cycles": 0,
+     "cells": 3,
+     "power_mw": 0.0376,
+     "toggles": 3010
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "PROVEN"
+  },
+  "id": "brent_kung_16b",
+  "limits": {
+   "app": ">= 30.0 dB",
+   "med": 7.5,
+   "mred_pct": 1.0,
+   "wce": 15.0
+  },
+  "method": "pyALS_loa_1b [raw]",
+  "metric": "WCE",
+  "name": "Brent-Kung 16b",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 25.95,
+   "ffs": 0.0,
+   "logic_cells": 45.45,
+   "luts": 63.64
+  },
+  "top": "UBBKA_15_0_15_0"
+ },
+ {
+  "app": {
+   "extra": {
+    "MRED_pct": 5.033439558670541e-07,
+    "NMED": 1.8182521067192916e-09
+   },
+   "name": "SQNR",
+   "note": "uniform random operands",
+   "pass": true,
+   "samples": 3000,
+   "threshold": ">= 30.0 dB",
+   "unit": "dB",
+   "value": 166.3140291042075
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 7,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 1.4194,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 46,
+   "lut_util_pct": 0.182,
+   "luts": 32,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 7,
+     "power_mw": 0.6582,
+     "toggles": 52653
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 33,
+     "power_mw": 0.7612,
+     "toggles": 30448
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 166.3140291042075,
+    "candidate": "pyALS_loa_6b",
+    "cone_baseline_lcs": 90,
+    "cone_lcs": 46,
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "PROVEN",
+    "lcs": 46,
+    "luts": 32,
+    "med": 15.618666666666666,
+    "mred_pct": 5.033439558670541e-07,
+    "outcome": "accepted",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 62.0
+   }
+  ],
+  "bound": 255.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Prefix Adder Arithmetic",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.816,
+   "med": 15.6187,
+   "mred_pct": 0.0,
+   "wce": 62.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 2.0384,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 90,
+   "lut_util_pct": 0.511,
+   "luts": 90,
+   "power_breakdown": {
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 181,
+     "power_mw": 1.9645,
+     "toggles": 78579
+    },
+    "MUXF": {
+     "active_cycles": 0,
+     "cells": 6,
+     "power_mw": 0.0739,
+     "toggles": 5913
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "PROVEN"
+  },
+  "id": "brent_kung_32b",
+  "limits": {
+   "app": ">= 30.0 dB",
+   "med": 127.5,
+   "mred_pct": 1.0,
+   "wce": 255.0
+  },
+  "method": "pyALS_loa_6b [raw]",
+  "metric": "WCE",
+  "name": "Brent-Kung 32b",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 30.37,
+   "ffs": 0.0,
+   "logic_cells": 48.89,
+   "luts": 64.44
+  },
+  "top": "UBBKA_31_0_31_0"
+ },
+ {
+  "app": {
+   "extra": {
+    "MRED_pct": 0.0005504471478072722,
+    "NMED": 1.917535788491225e-06
+   },
+   "name": "SQNR",
+   "note": "uniform random operands",
+   "pass": true,
+   "samples": 3000,
+   "threshold": ">= 30.0 dB",
+   "unit": "dB",
+   "value": 102.98048340694898
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 4,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 0.7726,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 24,
+   "lut_util_pct": 0.091,
+   "luts": 16,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 4,
+     "power_mw": 0.3802,
+     "toggles": 30414
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 17,
+     "power_mw": 0.3925,
+     "toggles": 15698
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 102.98048340694898,
+    "candidate": "pyALS_loa_1b",
+    "cone_baseline_lcs": 68,
+    "cone_lcs": 24,
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "PROVEN",
+    "lcs": 24,
+    "luts": 16,
+    "med": 0.25133333333333335,
+    "mred_pct": 0.0005504471478072722,
+    "outcome": "accepted",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 1.0
+   }
+  ],
+  "bound": 15.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Fast Adder Arithmetic",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.2513,
+   "med": 0.2513,
+   "mred_pct": 0.0006,
+   "wce": 1.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 1.4837,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 68,
+   "lut_util_pct": 0.386,
+   "luts": 68,
+   "power_breakdown": {
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 135,
+     "power_mw": 1.4837,
+     "toggles": 59349
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "PROVEN"
+  },
+  "id": "kogge_stone_16b",
+  "limits": {
+   "app": ">= 30.0 dB",
+   "med": 7.5,
+   "mred_pct": 1.0,
+   "wce": 15.0
+  },
+  "method": "pyALS_loa_1b [raw]",
+  "metric": "WCE",
+  "name": "Kogge-Stone 16b",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 47.93,
+   "ffs": 0.0,
+   "logic_cells": 64.71,
+   "luts": 76.47
+  },
+  "top": "UBKSA_15_0_15_0"
+ },
+ {
+  "app": {
+   "extra": {
+    "MRED_pct": 5.033439558670541e-07,
+    "NMED": 1.8182521067192916e-09
+   },
+   "name": "SQNR",
+   "note": "uniform random operands",
+   "pass": true,
+   "samples": 3000,
+   "threshold": ">= 30.0 dB",
+   "unit": "dB",
+   "value": 166.3140291042075
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 7,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 1.4194,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 46,
+   "lut_util_pct": 0.182,
+   "luts": 32,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 7,
+     "power_mw": 0.6582,
+     "toggles": 52653
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 33,
+     "power_mw": 0.7612,
+     "toggles": 30448
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 166.3140291042075,
+    "candidate": "pyALS_loa_6b",
+    "cone_baseline_lcs": 174,
+    "cone_lcs": 46,
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "PROVEN",
+    "lcs": 46,
+    "luts": 32,
+    "med": 15.618666666666666,
+    "mred_pct": 5.033439558670541e-07,
+    "outcome": "accepted",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 62.0
+   }
+  ],
+  "bound": 255.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Fast Adder Arithmetic",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.816,
+   "med": 15.6187,
+   "mred_pct": 0.0,
+   "wce": 62.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 3.4353,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 174,
+   "lut_util_pct": 0.989,
+   "luts": 174,
+   "power_breakdown": {
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 337,
+     "power_mw": 3.4353,
+     "toggles": 137414
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "PROVEN"
+  },
+  "id": "kogge_stone_32b",
+  "limits": {
+   "app": ">= 30.0 dB",
+   "med": 127.5,
+   "mred_pct": 1.0,
+   "wce": 255.0
+  },
+  "method": "pyALS_loa_6b [raw]",
+  "metric": "WCE",
+  "name": "Kogge-Stone 32b",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 58.68,
+   "ffs": 0.0,
+   "logic_cells": 73.56,
+   "luts": 81.61
+  },
+  "top": "UBKSA_31_0_31_0"
+ },
+ {
+  "app": {
+   "extra": {
+    "MRED_pct": 0.06172282651990904,
+    "NMED": 2.5981409236565946e-06
+   },
+   "name": "SQNR",
+   "note": "uniform random operands",
+   "pass": true,
+   "samples": 3000,
+   "threshold": ">= 25.0 dB",
+   "unit": "dB",
+   "value": 89.27273123087987
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 8.849,
+   "ff_util_pct": 0.108,
+   "ffs": 38,
+   "logic_cells": 392,
+   "lut_util_pct": 2.227,
+   "luts": 392,
+   "power_breakdown": {
+    "FF": {
+     "active_cycles": 0,
+     "cells": 38,
+     "power_mw": 0.6955,
+     "toggles": 32029
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 1257,
+     "power_mw": 8.1284,
+     "toggles": 325136
+    },
+    "MUXF": {
+     "active_cycles": 0,
+     "cells": 2,
+     "power_mw": 0.0251,
+     "toggles": 2005
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 69.27536886051566,
+    "candidate": "ppg_design_k15",
+    "err_ok": false,
+    "lcs": 296,
+    "luts": 296,
+    "med": 113941.90080428954,
+    "mred_pct": 0.6174167365224416,
+    "outcome": "rejected",
+    "pruned_ppgs": 120,
+    "reason": "WCE 294049 > 65536; MED 113941.901 > 32768",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 294049.0
+   },
+   {
+    "app_value": 124.03242267067492,
+    "candidate": "ppg_design_k7",
+    "err_ok": true,
+    "lcs": 500,
+    "luts": 500,
+    "med": 191.98123324396784,
+    "mred_pct": 0.0009546703442962786,
+    "outcome": "passed checks",
+    "pruned_ppgs": 28,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 705.0
+   },
+   {
+    "app_value": 96.00096941434799,
+    "candidate": "ppg_design_k11",
+    "err_ok": true,
+    "lcs": 409,
+    "luts": 409,
+    "med": 5099.348525469169,
+    "mred_pct": 0.027671706505407626,
+    "outcome": "passed checks",
+    "pruned_ppgs": 66,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 14473.0
+   },
+   {
+    "app_value": 82.56414814936707,
+    "candidate": "ppg_design_k13",
+    "err_ok": false,
+    "lcs": 354,
+    "luts": 354,
+    "med": 24357.0,
+    "mred_pct": 0.1332941228395354,
+    "outcome": "rejected",
+    "pruned_ppgs": 91,
+    "reason": "WCE 72865 > 65536",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 72865.0
+   },
+   {
+    "app_value": 89.27273123087987,
+    "candidate": "ppg_design_k12",
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "N/A (design-level PPG pruning; errors measured on application stream)",
+    "lcs": 392,
+    "luts": 392,
+    "med": 11158.930294906166,
+    "mred_pct": 0.06172282651990904,
+    "outcome": "accepted",
+    "pruned_ppgs": 78,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 31905.0
+   }
+  ],
+  "bound": 65536.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Multiplier Arithmetic",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.9977,
+   "med": 11158.9303,
+   "mred_pct": 0.0617,
+   "wce": 31905.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 13.1443,
+   "ff_util_pct": 0.162,
+   "ffs": 57,
+   "logic_cells": 599,
+   "lut_util_pct": 3.403,
+   "luts": 599,
+   "power_breakdown": {
+    "FF": {
+     "active_cycles": 0,
+     "cells": 57,
+     "power_mw": 0.998,
+     "toggles": 45625
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 1464,
+     "power_mw": 12.0746,
+     "toggles": 482983
+    },
+    "MUXF": {
+     "active_cycles": 0,
+     "cells": 6,
+     "power_mw": 0.0718,
+     "toggles": 5741
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "N/A (design-level PPG pruning; errors measured on application stream)"
+  },
+  "id": "multiplier_16b",
+  "limits": {
+   "app": ">= 25.0 dB",
+   "med": 32768.0,
+   "mred_pct": 1.0,
+   "wce": 65536.0
+  },
+  "method": "ppg_design_k12",
+  "metric": "WCE",
+  "name": "Multiplier 16b",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 32.68,
+   "ffs": 33.33,
+   "logic_cells": 34.56,
+   "luts": 34.56
+  },
+  "top": "Multiplier_15_0_1000"
+ },
+ {
+  "app": {
+   "extra": {
+    "MRED_pct": 2.0657685784550192e-06,
+    "NMED": 9.792750519728289e-11
+   },
+   "name": "SQNR",
+   "note": "uniform random operands",
+   "pass": true,
+   "samples": 3000,
+   "threshold": ">= 25.0 dB",
+   "unit": "dB",
+   "value": 178.22610925270874
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 29.8904,
+   "ff_util_pct": 0.199,
+   "ffs": 70,
+   "logic_cells": 1385,
+   "lut_util_pct": 7.869,
+   "luts": 1385,
+   "power_breakdown": {
+    "FF": {
+     "active_cycles": 0,
+     "cells": 70,
+     "power_mw": 1.3544,
+     "toggles": 62904
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 4356,
+     "power_mw": 28.5359,
+     "toggles": 1141436
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 159.29986704543336,
+    "candidate": "ppg_design_k31",
+    "err_ok": false,
+    "lcs": 1194,
+    "luts": 1194,
+    "med": 16025876341.818699,
+    "mred_pct": 1.9177351329024456e-05,
+    "outcome": "rejected",
+    "pruned_ppgs": 496,
+    "reason": "WCE 3.27979e+10 > 4.29497e+09; MED 16025876341.819 > 2.14748e+09",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 32797899504.0
+   },
+   {
+    "app_value": 261.85398051339365,
+    "candidate": "ppg_design_k15",
+    "err_ok": true,
+    "lcs": 2080,
+    "luts": 2080,
+    "med": 114961.6149463807,
+    "mred_pct": 1.26775304212668e-10,
+    "outcome": "passed checks",
+    "pruned_ppgs": 120,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 289408.0
+   },
+   {
+    "app_value": 210.022245302859,
+    "candidate": "ppg_design_k23",
+    "err_ok": true,
+    "lcs": 1682,
+    "luts": 1682,
+    "med": 46022270.74095174,
+    "mred_pct": 5.199820230872352e-08,
+    "outcome": "passed checks",
+    "pruned_ppgs": 276,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 102807552.0
+   },
+   {
+    "app_value": 184.54947609804674,
+    "candidate": "ppg_design_k27",
+    "err_ok": true,
+    "lcs": 1434,
+    "luts": 1434,
+    "med": 870697777.185992,
+    "mred_pct": 9.926793951072093e-07,
+    "outcome": "passed checks",
+    "pruned_ppgs": 378,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 1848430336.0
+   },
+   {
+    "app_value": 171.9202973995499,
+    "candidate": "ppg_design_k29",
+    "err_ok": false,
+    "lcs": 1311,
+    "luts": 1311,
+    "med": 3741535815.8347855,
+    "mred_pct": 4.328915837452964e-06,
+    "outcome": "rejected",
+    "pruned_ppgs": 435,
+    "reason": "WCE 8.08444e+09 > 4.29497e+09; MED 3741535815.835 > 2.14748e+09",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 8084436992.0
+   },
+   {
+    "app_value": 178.22610925270874,
+    "candidate": "ppg_design_k28",
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "N/A (design-level PPG pruning; errors measured on application stream)",
+    "lcs": 1385,
+    "luts": 1385,
+    "med": 1806443626.1511395,
+    "mred_pct": 2.0657685784550192e-06,
+    "outcome": "accepted",
+    "pruned_ppgs": 406,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 3911360384.0
+   }
+  ],
+  "bound": 4294967296.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Multiplier Arithmetic",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 1.0,
+   "med": 1806443626.1511,
+   "mred_pct": 0.0,
+   "wce": 3911360384.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 50.0859,
+   "ff_util_pct": 0.338,
+   "ffs": 119,
+   "logic_cells": 2406,
+   "lut_util_pct": 13.67,
+   "luts": 2406,
+   "power_breakdown": {
+    "FF": {
+     "active_cycles": 0,
+     "cells": 119,
+     "power_mw": 2.1269,
+     "toggles": 97568
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 5377,
+     "power_mw": 47.959,
+     "toggles": 1918358
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "N/A (design-level PPG pruning; errors measured on application stream)"
+  },
+  "id": "multiplier_32b",
+  "limits": {
+   "app": ">= 25.0 dB",
+   "med": 2147483648.0,
+   "mred_pct": 1.0,
+   "wce": 4294967296.0
+  },
+  "method": "ppg_design_k28",
+  "metric": "WCE",
+  "name": "Multiplier 32b",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 40.32,
+   "ffs": 41.18,
+   "logic_cells": 42.44,
+   "luts": 42.44
+  },
+  "top": "Multiplier_31_0_3000"
+ },
+ {
+  "app": {
+   "extra": {
+    "mean_abs_err": 0.4929718875502008
+   },
+   "name": "Output SNR",
+   "note": "8-bit sum of 3 sinusoids (f=0.011/0.047/0.19 fs) + Gaussian noise (sigma=5)",
+   "pass": true,
+   "samples": 4000,
+   "threshold": ">= 25.0 dB",
+   "unit": "dB",
+   "value": 42.224097437077006
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 2,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 1.3986,
+   "ff_util_pct": 0.08,
+   "ffs": 28,
+   "logic_cells": 29,
+   "lut_util_pct": 0.142,
+   "luts": 25,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 2,
+     "power_mw": 0.0994,
+     "toggles": 7955
+    },
+    "FF": {
+     "active_cycles": 0,
+     "cells": 28,
+     "power_mw": 0.5434,
+     "toggles": 25247
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 27,
+     "power_mw": 0.7558,
+     "toggles": 30230
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 42.224097437077006,
+    "candidate": "pyALS_prune_lut_2",
+    "cone_baseline_lcs": 37,
+    "cone_lcs": 29,
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "PROVEN",
+    "lcs": 29,
+    "luts": 25,
+    "med": 0.4929718875502008,
+    "mred_pct": 0.4608961304458795,
+    "outcome": "accepted",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 2.0
+   }
+  ],
+  "bound": 3.0,
+  "device": "xc7z010clg400-1",
+  "domain": "DSP Filtering",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.2465,
+   "med": 0.493,
+   "mred_pct": 0.4609,
+   "wce": 2.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 2,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 1.6728,
+   "ff_util_pct": 0.08,
+   "ffs": 28,
+   "logic_cells": 36,
+   "lut_util_pct": 0.182,
+   "luts": 32,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 2,
+     "power_mw": 0.1769,
+     "toggles": 14155
+    },
+    "FF": {
+     "active_cycles": 0,
+     "cells": 28,
+     "power_mw": 0.5434,
+     "toggles": 25247
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 41,
+     "power_mw": 0.9525,
+     "toggles": 38099
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "PROVEN"
+  },
+  "id": "fir_filter",
+  "limits": {
+   "app": ">= 25.0 dB",
+   "med": 1.5,
+   "mred_pct": 1.0,
+   "wce": 3.0
+  },
+  "method": "pyALS_prune_lut_2 [raw]",
+  "metric": "WCE",
+  "name": "FIR Filter",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 16.39,
+   "ffs": 0.0,
+   "logic_cells": 19.44,
+   "luts": 21.88
+  },
+  "top": "filterfir"
+ },
+ {
+  "app": {
+   "extra": {
+    "pixels_differing_pct": 78.0390920554855
+   },
+   "name": "Edge-image PSNR",
+   "note": "peppers.png grayscale 128x128, all interior 3x3 windows",
+   "pass": true,
+   "samples": 15876,
+   "threshold": ">= 30.0 dB",
+   "unit": "dB",
+   "value": 35.60409411502844
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 4.0993,
+   "ff_util_pct": 0.051,
+   "ffs": 18,
+   "logic_cells": 170,
+   "lut_util_pct": 0.966,
+   "luts": 170,
+   "power_breakdown": {
+    "FF": {
+     "active_cycles": 0,
+     "cells": 18,
+     "power_mw": 0.3768,
+     "toggles": 17696
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 171,
+     "power_mw": 3.7225,
+     "toggles": 148900
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 35.60409411502844,
+    "candidate": "pyALS_out_prune_3b",
+    "cone_baseline_lcs": 41,
+    "cone_lcs": 33,
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "PROVEN",
+    "lcs": 170,
+    "luts": 170,
+    "med": 3.4512610340479193,
+    "mred_pct": 10.142991873857007,
+    "outcome": "accepted",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 7.0
+   }
+  ],
+  "bound": 16.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Computer Vision",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.7804,
+   "med": 3.4513,
+   "mred_pct": 10.143,
+   "wce": 7.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 4.3478,
+   "ff_util_pct": 0.051,
+   "ffs": 18,
+   "logic_cells": 183,
+   "lut_util_pct": 1.04,
+   "luts": 183,
+   "power_breakdown": {
+    "FF": {
+     "active_cycles": 0,
+     "cells": 18,
+     "power_mw": 0.3768,
+     "toggles": 17696
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 451,
+     "power_mw": 3.971,
+     "toggles": 158842
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "PROVEN"
+  },
+  "id": "sobel_filter",
+  "limits": {
+   "app": ">= 30.0 dB",
+   "med": 8.0,
+   "mred_pct": null,
+   "wce": 16.0
+  },
+  "method": "pyALS_out_prune_3b [raw]",
+  "metric": "WCE",
+  "name": "Sobel Filter",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 5.72,
+   "ffs": 0.0,
+   "logic_cells": 7.1,
+   "luts": 7.1
+  },
+  "top": "sobel"
+ },
+ {
+  "app": {
+   "extra": {
+    "max_abs_dx": 0.0174560546875,
+    "rmse_dx": 0.007359249386968405
+   },
+   "name": "End-effector |dx| (mean)",
+   "note": "joint angles uniform in [0, pi/2] rad, sign-magnitude Q15",
+   "pass": true,
+   "samples": 2000,
+   "threshold": "<= 0.05 arm units",
+   "unit": "arm units",
+   "value": 0.006115590372393208
+  },
+  "approx": {
+   "bram_util_pct": 6.667,
+   "brams": 4,
+   "carry4": 63,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 8.67,
+   "ff_util_pct": 0.514,
+   "ffs": 181,
+   "logic_cells": 609,
+   "lut_util_pct": 2.744,
+   "luts": 483,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 63,
+     "power_mw": 1.9585,
+     "toggles": 156677
+    },
+    "FF": {
+     "active_cycles": 0,
+     "cells": 181,
+     "power_mw": 0.4525,
+     "toggles": 1
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 12391,
+     "power_mw": 1.2703,
+     "toggles": 50810
+    },
+    "RAMB36E1": {
+     "active_cycles": 7982,
+     "cells": 4,
+     "power_mw": 4.9887,
+     "toggles": 0
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 4
+  },
+  "attempts": [
+   {
+    "app_value": 3.4151267236278904,
+    "candidate": "ppg_design_k31",
+    "err_ok": false,
+    "lcs": 337,
+    "luts": 235,
+    "med": 111906.87247983871,
+    "mred_pct": 126.57170962929057,
+    "outcome": "rejected",
+    "pruned_ppgs": 496,
+    "reason": "WCE 294052 > 1638; MED 111906.872 > 819; MRED 126.5717% > 1%; End-effector |dx| (mean) 3.415 arm units fails <= 0.05 arm units",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 294052.0
+   },
+   {
+    "app_value": 0.0,
+    "candidate": "ppg_design_k15",
+    "err_ok": true,
+    "lcs": 823,
+    "luts": 673,
+    "med": 0.0,
+    "mred_pct": 0.0,
+    "outcome": "passed checks",
+    "pruned_ppgs": 120,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 0.0
+   },
+   {
+    "app_value": 0.012719477376630229,
+    "candidate": "ppg_design_k23",
+    "err_ok": false,
+    "lcs": 575,
+    "luts": 449,
+    "med": 416.79183467741933,
+    "mred_pct": 1.008121104207626,
+    "outcome": "rejected",
+    "pruned_ppgs": 276,
+    "reason": "MRED 1.0081% > 1%",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 1212.0
+   },
+   {
+    "app_value": 0.000614427751110446,
+    "candidate": "ppg_design_k19",
+    "err_ok": true,
+    "lcs": 728,
+    "luts": 590,
+    "med": 20.133568548387096,
+    "mred_pct": 0.048518113448045005,
+    "outcome": "passed checks",
+    "pruned_ppgs": 190,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 57.0
+   },
+   {
+    "app_value": 0.003002797403643208,
+    "candidate": "ppg_design_k21",
+    "err_ok": true,
+    "lcs": 652,
+    "luts": 514,
+    "med": 98.39566532258064,
+    "mred_pct": 0.3546583402868861,
+    "outcome": "passed checks",
+    "pruned_ppgs": 231,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 286.0
+   },
+   {
+    "app_value": 0.006115590372393208,
+    "candidate": "ppg_design_k22",
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "N/A (design-level PPG pruning; errors measured on application stream)",
+    "lcs": 609,
+    "luts": 483,
+    "med": 200.39566532258064,
+    "mred_pct": 0.49674946418084903,
+    "outcome": "accepted",
+    "pruned_ppgs": 253,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 572.0
+   }
+  ],
+  "bound": 1638.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Robotics Control",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.9975,
+   "med": 200.3957,
+   "mred_pct": 0.4967,
+   "wce": 572.0
+  },
+  "exact": {
+   "bram_util_pct": 6.667,
+   "brams": 4,
+   "carry4": 75,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 8.825,
+   "ff_util_pct": 0.69,
+   "ffs": 243,
+   "logic_cells": 830,
+   "lut_util_pct": 3.864,
+   "luts": 680,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 75,
+     "power_mw": 1.9585,
+     "toggles": 156677
+    },
+    "FF": {
+     "active_cycles": 0,
+     "cells": 243,
+     "power_mw": 0.6075,
+     "toggles": 1
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 12590,
+     "power_mw": 1.2703,
+     "toggles": 50810
+    },
+    "RAMB36E1": {
+     "active_cycles": 7982,
+     "cells": 4,
+     "power_mw": 4.9887,
+     "toggles": 0
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 4
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "N/A (design-level PPG pruning; errors measured on application stream)"
+  },
+  "id": "kinematics_fwd",
+  "limits": {
+   "app": "<= 0.05 arm units",
+   "med": 819.0,
+   "mred_pct": 1.0,
+   "wce": 1638.0
+  },
+  "method": "ppg_design_k22",
+  "metric": "WCE",
+  "name": "Kinematics Forward",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 16.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 1.76,
+   "ffs": 25.51,
+   "logic_cells": 26.63,
+   "luts": 28.97
+  },
+  "top": "kinematics"
+ },
+ {
+  "app": {
+   "extra": {
+    "max_abs_dtheta1": 0.0009765625
+   },
+   "name": "theta1 RMSE",
+   "note": "reachable targets from joint angles uniform in [0.2, pi/2-0.2] rad (arm lengths 11, 12), Q15",
+   "pass": true,
+   "samples": 2000,
+   "threshold": "<= 0.05 rad",
+   "unit": "rad",
+   "value": 0.0003037944418155543
+  },
+  "approx": {
+   "bram_util_pct": 3.333,
+   "brams": 2,
+   "carry4": 103,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 19.659,
+   "ff_util_pct": 2.009,
+   "ffs": 707,
+   "logic_cells": 5908,
+   "lut_util_pct": 32.398,
+   "luts": 5702,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 103,
+     "power_mw": 1.5958,
+     "toggles": 127666
+    },
+    "FF": {
+     "active_cycles": 0,
+     "cells": 707,
+     "power_mw": 3.911,
+     "toggles": 114321
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 23662,
+     "power_mw": 14.0821,
+     "toggles": 563282
+    },
+    "MUXF": {
+     "active_cycles": 0,
+     "cells": 110,
+     "power_mw": 0.0176,
+     "toggles": 1411
+    },
+    "RAMB36E1": {
+     "active_cycles": 84,
+     "cells": 2,
+     "power_mw": 0.0525,
+     "toggles": 0
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 2
+  },
+  "attempts": [
+   {
+    "app_value": 0.06299019536617796,
+    "candidate": "ppg_design_k31",
+    "err_ok": false,
+    "lcs": 3981,
+    "luts": 3805,
+    "med": 816.054435483871,
+    "mred_pct": 49.55273450155441,
+    "outcome": "rejected",
+    "pruned_ppgs": 496,
+    "reason": "WCE 12690 > 1638; MRED 49.5527% > 1%; theta1 RMSE 0.063 rad fails <= 0.05 rad",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 12690.0
+   },
+   {
+    "app_value": 0.0,
+    "candidate": "ppg_design_k15",
+    "err_ok": true,
+    "lcs": 7807,
+    "luts": 7575,
+    "med": 0.0,
+    "mred_pct": 0.0,
+    "outcome": "passed checks",
+    "pruned_ppgs": 120,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 0.0
+   },
+   {
+    "app_value": 0.00015189722090777714,
+    "candidate": "ppg_design_k23",
+    "err_ok": true,
+    "lcs": 6135,
+    "luts": 5929,
+    "med": 0.7741935483870968,
+    "mred_pct": 0.09508245431585202,
+    "outcome": "passed checks",
+    "pruned_ppgs": 276,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 32.0
+   },
+   {
+    "app_value": 0.0014275526395110363,
+    "candidate": "ppg_design_k27",
+    "err_ok": false,
+    "lcs": 4997,
+    "luts": 4801,
+    "med": 38.00806451612903,
+    "mred_pct": 3.4334227008850076,
+    "outcome": "rejected",
+    "pruned_ppgs": 378,
+    "reason": "MRED 3.4334% > 1%",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 97.0
+   },
+   {
+    "app_value": 0.0004965784768062555,
+    "candidate": "ppg_design_k25",
+    "err_ok": false,
+    "lcs": 5591,
+    "luts": 5385,
+    "med": 8.274193548387096,
+    "mred_pct": 2.1430012310579216,
+    "outcome": "rejected",
+    "pruned_ppgs": 325,
+    "reason": "MRED 2.1430% > 1%",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 32.0
+   },
+   {
+    "app_value": 0.0003037944418155543,
+    "candidate": "ppg_design_k24",
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "N/A (design-level PPG pruning; errors measured on application stream)",
+    "lcs": 5908,
+    "luts": 5702,
+    "med": 3.096774193548387,
+    "mred_pct": 0.14016872519132864,
+    "outcome": "accepted",
+    "pruned_ppgs": 300,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 32.0
+   }
+  ],
+  "bound": 1638.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Robotics Control",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.0968,
+   "med": 3.0968,
+   "mred_pct": 0.1402,
+   "wce": 32.0
+  },
+  "exact": {
+   "bram_util_pct": 3.333,
+   "brams": 2,
+   "carry4": 115,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 43.929,
+   "ff_util_pct": 2.602,
+   "ffs": 916,
+   "logic_cells": 9016,
+   "lut_util_pct": 49.92,
+   "luts": 8786,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 115,
+     "power_mw": 1.9953,
+     "toggles": 159627
+    },
+    "FF": {
+     "active_cycles": 0,
+     "cells": 916,
+     "power_mw": 5.6456,
+     "toggles": 178967
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 26762,
+     "power_mw": 36.1979,
+     "toggles": 1447914
+    },
+    "MUXF": {
+     "active_cycles": 0,
+     "cells": 58,
+     "power_mw": 0.0377,
+     "toggles": 3016
+    },
+    "RAMB36E1": {
+     "active_cycles": 84,
+     "cells": 2,
+     "power_mw": 0.0525,
+     "toggles": 0
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 2
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "N/A (design-level PPG pruning; errors measured on application stream)"
+  },
+  "id": "kinematics_inv",
+  "limits": {
+   "app": "<= 0.05 rad",
+   "med": 819.0,
+   "mred_pct": 1.0,
+   "wce": 1638.0
+  },
+  "method": "ppg_design_k24",
+  "metric": "WCE",
+  "name": "Kinematics Inverse",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 10.43,
+   "dsps": 0.0,
+   "dynamic_power_mw": 55.25,
+   "ffs": 22.82,
+   "logic_cells": 34.47,
+   "luts": 35.1
+  },
+  "top": "inv_kin"
+ },
+ {
+  "app": {
+   "extra": {
+    "clustered_image_PSNR_dB": Infinity
+   },
+   "name": "Pixel misclassification",
+   "note": "exhaustive 8-bit operand table of sub_8b used as the |a-b| kernel of 8-cluster k-means on peppers.png RGB 128x128",
+   "pass": true,
+   "samples": 65536,
+   "threshold": "<= 2.0 %",
+   "unit": "%",
+   "value": 0.0
+  },
+  "approx": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 0.52,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 22,
+   "lut_util_pct": 0.125,
+   "luts": 22,
+   "power_breakdown": {
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 55,
+     "power_mw": 0.52,
+     "toggles": 20800
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 26.422119140625,
+    "candidate": "pyALS_cum_prune_2",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 10,
+    "err_ok": false,
+    "lcs": 10,
+    "luts": 10,
+    "med": 1.5,
+    "mred_pct": 6.569995665711119,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 26.422 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 3.0
+   },
+   {
+    "app_value": 26.422119140625,
+    "candidate": "pyALS_cum_prune_2",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 10,
+    "err_ok": false,
+    "lcs": 10,
+    "luts": 10,
+    "med": 1.5,
+    "mred_pct": 6.569995665711119,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 26.422 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "remapped",
+    "wce": 3.0
+   },
+   {
+    "app_value": 26.422119140625,
+    "candidate": "pyALS_out_prune_2b",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 10,
+    "err_ok": false,
+    "lcs": 10,
+    "luts": 10,
+    "med": 1.5,
+    "mred_pct": 6.569995665711119,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 26.422 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 3.0
+   },
+   {
+    "app_value": 26.422119140625,
+    "candidate": "pyALS_out_prune_2b",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 10,
+    "err_ok": false,
+    "lcs": 10,
+    "luts": 10,
+    "med": 1.5,
+    "mred_pct": 6.569995665711119,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 26.422 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "remapped",
+    "wce": 3.0
+   },
+   {
+    "app_value": 9.014892578125,
+    "candidate": "pyALS_prune_lut_1",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 11,
+    "err_ok": false,
+    "lcs": 11,
+    "luts": 11,
+    "med": 1.0,
+    "mred_pct": 4.2893906331443,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 9.015 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 2.0
+   },
+   {
+    "app_value": 9.014892578125,
+    "candidate": "pyALS_prune_lut_1",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 11,
+    "err_ok": false,
+    "lcs": 11,
+    "luts": 11,
+    "med": 1.0,
+    "mred_pct": 4.2893906331443,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 9.015 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "remapped",
+    "wce": 2.0
+   },
+   {
+    "app_value": 3.38134765625,
+    "candidate": "pyALS_loa_2b",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 8,
+    "med": 1.25,
+    "mred_pct": 5.426092758489301,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 3.381 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 3.0
+   },
+   {
+    "app_value": 3.38134765625,
+    "candidate": "pyALS_loa_2b",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 8,
+    "med": 1.25,
+    "mred_pct": 5.426092758489301,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 3.381 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "remapped",
+    "wce": 3.0
+   },
+   {
+    "app_value": 4.791259765625,
+    "candidate": "pyALS_cum_prune_1",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 12,
+    "med": 0.5,
+    "mred_pct": 2.280605032566819,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 4.791 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 1.0
+   },
+   {
+    "app_value": 4.791259765625,
+    "candidate": "pyALS_cum_prune_1",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 12,
+    "med": 0.5,
+    "mred_pct": 2.280605032566819,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 4.791 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "remapped",
+    "wce": 1.0
+   },
+   {
+    "app_value": 4.791259765625,
+    "candidate": "pyALS_lsb_drop_1_dist2",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 12,
+    "med": 0.5,
+    "mred_pct": 2.280605032566819,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 4.791 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 1.0
+   },
+   {
+    "app_value": 4.791259765625,
+    "candidate": "pyALS_lsb_drop_1_dist2",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 12,
+    "med": 0.5,
+    "mred_pct": 2.280605032566819,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 4.791 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "remapped",
+    "wce": 1.0
+   },
+   {
+    "app_value": 4.791259765625,
+    "candidate": "pyALS_lsb_drop_2_dist2",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 12,
+    "med": 0.5,
+    "mred_pct": 2.280605032566819,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 4.791 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 1.0
+   },
+   {
+    "app_value": 4.791259765625,
+    "candidate": "pyALS_lsb_drop_2_dist2",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 12,
+    "med": 0.5,
+    "mred_pct": 2.280605032566819,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 4.791 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "remapped",
+    "wce": 1.0
+   },
+   {
+    "app_value": 4.791259765625,
+    "candidate": "pyALS_lsb_drop_3_dist2",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 12,
+    "med": 0.5,
+    "mred_pct": 2.280605032566819,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 4.791 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "raw",
+    "wce": 1.0
+   },
+   {
+    "app_value": 4.791259765625,
+    "candidate": "pyALS_lsb_drop_3_dist2",
+    "cone_baseline_lcs": 22,
+    "cone_lcs": 12,
+    "err_ok": false,
+    "lcs": 12,
+    "luts": 12,
+    "med": 0.5,
+    "mred_pct": 2.280605032566819,
+    "outcome": "rejected",
+    "reason": "Pixel misclassification 4.791 % fails <= 2.0 %",
+    "savings_ok": true,
+    "variant": "remapped",
+    "wce": 1.0
+   }
+  ],
+  "bound": 3.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Machine Learning",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.0,
+   "med": 0.0,
+   "mred_pct": 0.0,
+   "wce": 0.0
+  },
+  "exact": {
+   "bram_util_pct": 0.0,
+   "brams": 0,
+   "carry4": 0,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 0.52,
+   "ff_util_pct": 0.0,
+   "ffs": 0,
+   "logic_cells": 22,
+   "lut_util_pct": 0.125,
+   "luts": 22,
+   "power_breakdown": {
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 55,
+     "power_mw": 0.52,
+     "toggles": 20800
+    }
+   },
+   "ramb18": 0,
+   "ramb36": 0
+  },
+  "fallback_reason": "none of 8 cone candidate(s) x 2 variant(s) met every threshold (see attempts)",
+  "fell_back": true,
+  "formal": {
+   "control_equivalence": "N/A (exact design kept)",
+   "wce_bound": "N/A (exact design kept)"
+  },
+  "id": "kmeans_clustering",
+  "limits": {
+   "app": "<= 2.0 %",
+   "med": 1.5,
+   "mred_pct": null,
+   "wce": 3.0
+  },
+  "method": "exact (fallback)",
+  "metric": "WCE",
+  "name": "K-Means Clustering",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 0.0,
+   "ffs": 0.0,
+   "logic_cells": 0.0,
+   "luts": 0.0
+  },
+  "top": "sub_8b"
+ },
+ {
+  "app": {
+   "extra": {
+    "SQNR_dB": 58.57299833200816,
+    "decision_threshold": 0.5
+   },
+   "name": "Decision agreement",
+   "note": "seeded random inputs and weights in [-1,1] (Q9); no dataset in AxBench",
+   "pass": true,
+   "samples": 3000,
+   "threshold": ">= 99.0 %",
+   "unit": "%",
+   "value": 99.93297587131367
+  },
+  "approx": {
+   "bram_util_pct": 0.833,
+   "brams": 1,
+   "carry4": 98,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 45.0602,
+   "ff_util_pct": 1.335,
+   "ffs": 470,
+   "logic_cells": 3774,
+   "lut_util_pct": 20.33,
+   "luts": 3578,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 98,
+     "power_mw": 7.7634,
+     "toggles": 621072
+    },
+    "FF": {
+     "active_cycles": 0,
+     "cells": 470,
+     "power_mw": 5.8223,
+     "toggles": 247856
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 10530,
+     "power_mw": 30.8511,
+     "toggles": 1234044
+    },
+    "MUXF": {
+     "active_cycles": 0,
+     "cells": 21,
+     "power_mw": 0.0,
+     "toggles": 0
+    },
+    "RAMB18E1": {
+     "active_cycles": 1995,
+     "cells": 1,
+     "power_mw": 0.6234,
+     "toggles": 0
+    }
+   },
+   "ramb18": 1,
+   "ramb36": 0
+  },
+  "attempts": [
+   {
+    "app_value": 84.81903485254692,
+    "candidate": "ppg_design_k15",
+    "err_ok": false,
+    "lcs": 1995,
+    "luts": 1849,
+    "med": 53.33076407506702,
+    "mred_pct": 29.134062087802437,
+    "outcome": "rejected",
+    "pruned_ppgs": 120,
+    "reason": "WCE 185 > 26; MED 53.331 > 13; MRED 29.1341% > 1%; Decision agreement 84.819 % fails >= 99.0 %",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 185.0
+   },
+   {
+    "app_value": 99.86595174262735,
+    "candidate": "ppg_design_k7",
+    "err_ok": false,
+    "lcs": 3586,
+    "luts": 3390,
+    "med": 0.6514745308310992,
+    "mred_pct": 0.3079936418041228,
+    "outcome": "rejected",
+    "pruned_ppgs": 28,
+    "reason": "WCE 118 > 26",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 118.0
+   },
+   {
+    "app_value": 100.0,
+    "candidate": "ppg_design_k3",
+    "err_ok": true,
+    "lcs": 3982,
+    "luts": 3786,
+    "med": 0.007372654155495978,
+    "mred_pct": 0.0038459908330411062,
+    "outcome": "passed checks",
+    "pruned_ppgs": 6,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 1.0
+   },
+   {
+    "app_value": 99.93297587131367,
+    "candidate": "ppg_design_k5",
+    "err_ok": true,
+    "formal_control": "PROVEN",
+    "formal_wce": "N/A (design-level PPG pruning; errors measured on application stream)",
+    "lcs": 3774,
+    "luts": 3578,
+    "med": 0.10723860589812333,
+    "mred_pct": 0.05133623867017421,
+    "outcome": "accepted",
+    "pruned_ppgs": 15,
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 2.0
+   },
+   {
+    "app_value": 99.83243967828417,
+    "candidate": "ppg_design_k6",
+    "err_ok": false,
+    "lcs": 3705,
+    "luts": 3509,
+    "med": 0.44671581769436997,
+    "mred_pct": 0.21253857320947273,
+    "outcome": "rejected",
+    "pruned_ppgs": 21,
+    "reason": "WCE 118 > 26",
+    "savings_ok": true,
+    "variant": "design",
+    "wce": 118.0
+   }
+  ],
+  "bound": 26.0,
+  "device": "xc7z010clg400-1",
+  "domain": "Deep Learning",
+  "engine": "pyALS Candidate Tournament",
+  "errors": {
+   "domain": "application stream, relaxed output in its number format (LSB units)",
+   "er": 0.1069,
+   "med": 0.1072,
+   "mred_pct": 0.0513,
+   "wce": 2.0
+  },
+  "exact": {
+   "bram_util_pct": 0.833,
+   "brams": 1,
+   "carry4": 98,
+   "dsp_util_pct": 0.0,
+   "dsps": 0,
+   "dynamic_power_mw": 49.5798,
+   "ff_util_pct": 1.449,
+   "ffs": 510,
+   "logic_cells": 4018,
+   "lut_util_pct": 21.716,
+   "luts": 3822,
+   "power_breakdown": {
+    "CARRY4": {
+     "active_cycles": 0,
+     "cells": 98,
+     "power_mw": 7.7603,
+     "toggles": 620822
+    },
+    "FF": {
+     "active_cycles": 0,
+     "cells": 510,
+     "power_mw": 6.2469,
+     "toggles": 265169
+    },
+    "LUT": {
+     "active_cycles": 0,
+     "cells": 10774,
+     "power_mw": 34.8752,
+     "toggles": 1395007
+    },
+    "MUXF": {
+     "active_cycles": 0,
+     "cells": 19,
+     "power_mw": 0.074,
+     "toggles": 5919
+    },
+    "RAMB18E1": {
+     "active_cycles": 1995,
+     "cells": 1,
+     "power_mw": 0.6234,
+     "toggles": 0
+    }
+   },
+   "ramb18": 1,
+   "ramb36": 0
+  },
+  "fallback_reason": null,
+  "fell_back": false,
+  "formal": {
+   "control_equivalence": "PROVEN",
+   "wce_bound": "N/A (design-level PPG pruning; errors measured on application stream)"
+  },
+  "id": "neural_network",
+  "limits": {
+   "app": ">= 99.0 %",
+   "med": 13.0,
+   "mred_pct": 1.0,
+   "wce": 26.0
+  },
+  "method": "ppg_design_k5",
+  "metric": "WCE",
+  "name": "Neural Network Layer",
+  "power_model": {
+   "cycles": 2000,
+   "energy_pj": {
+    "CARRY4": 0.2,
+    "DSP48E1": 12.0,
+    "FF": 0.3,
+    "FF_CLOCK": 0.02,
+    "LUT": 0.4,
+    "MUXF": 0.2,
+    "RAMB18E1": 5.0,
+    "RAMB36E1": 10.0
+   },
+   "f_clk_mhz": 125.0,
+   "method": "activity-based (zero-delay iverilog VCD of Yosys-mapped netlist)"
+  },
+  "savings_pct": {
+   "brams": 0.0,
+   "carry4": 0.0,
+   "dsps": 0.0,
+   "dynamic_power_mw": 9.12,
+   "ffs": 7.84,
+   "logic_cells": 6.07,
+   "luts": 6.38
+  },
+  "top": "perceptron_fixed"
+ }
+]
