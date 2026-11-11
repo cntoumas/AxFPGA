@@ -145,6 +145,7 @@ def build(run: Path, out: Path, baseline: Optional[Path], algos: Optional[Path],
         row["prim_approx"] = r["approx"].get("primitives") or {}
         row["pb_exact"] = r["exact"].get("power_breakdown") or {}
         row["pb_approx"] = r["approx"].get("power_breakdown") or {}
+        row["exact_rewrite"] = bool(r.get("exact_rewrite"))
     rows.sort(key=lambda r: (-r["lc_saved"], r["id"]))
     figs = out / "figures"
     figs.mkdir(parents=True, exist_ok=True)
@@ -163,6 +164,9 @@ def build(run: Path, out: Path, baseline: Optional[Path], algos: Optional[Path],
         "max_lc_design": max(approx, key=lambda r: r["lc_saved"])["id"] if approx else "",
         "mean_power_saved_approx": statistics.mean(r["p_saved"] for r in approx) if approx else 0.0,
         "app_ok": sum(1 for r in approx if r["app_pass"]),
+        "exact_rewrites": [r["id"] for r in approx if r["exact_rewrite"]],
+        "mean_lc_saved_lossy": (statistics.mean(r["lc_saved"] for r in approx if not r["exact_rewrite"])
+                                if any(not r["exact_rewrite"] for r in approx) else 0.0),
         "baseline_mean_all": base_mean_all,
         "lc_exact_total": sum(r["lc_exact"] for r in rows), "lc_approx_total": sum(r["lc_approx"] for r in rows),
     }
@@ -201,6 +205,9 @@ def build(run: Path, out: Path, baseline: Optional[Path], algos: Optional[Path],
                ["Mean logic cells saved (all designs)", f"{summary['mean_lc_saved_all']:.1f} %"
                 + (f" (fixed menu before: {base_mean_all:.1f} %)" if base_mean_all is not None else "")],
                ["Mean logic cells saved (approximated designs)", f"{summary['mean_lc_saved_approx']:.1f} % (median {summary['median_lc_saved_approx']:.1f} %)"],
+               ["Of which exact rewrites (zero error on application and held-out stream)",
+                f"{len(summary['exact_rewrites'])}" + (f" ({', '.join(summary['exact_rewrites'])})" if summary['exact_rewrites'] else "")],
+               ["Mean logic cells saved (lossy approximations only)", f"{summary['mean_lc_saved_lossy']:.1f} %"],
                ["Best design", f"{summary['max_lc_design']} at {summary['max_lc_saved']:.1f} %"],
                ["Mean dynamic power saved (approximated designs)", f"{summary['mean_power_saved_approx']:.1f} %"],
                ["Application metric met", f"{summary['app_ok']} of {summary['approximated']}"],
@@ -210,7 +217,7 @@ def build(run: Path, out: Path, baseline: Optional[Path], algos: Optional[Path],
         md += ["![Exploration vs fixed menu](figures/vs_tournament.png)", ""]
 
     md += ["## 1. Savings and resources", ""]
-    body = [[f"**{r['id']}**", r["domain"], f"{r['lc_exact']} -> {r['lc_approx']}", f"**{r['lc_saved']:.1f}**",
+    body = [[f"**{r['id']}**" + (" (exact rewrite)" if r["exact_rewrite"] else ""), r["domain"], f"{r['lc_exact']} -> {r['lc_approx']}", f"**{r['lc_saved']:.1f}**",
              f"{r['lut_exact']} -> {r['lut_approx']}", f"{r['ff_exact']} -> {r['ff_approx']}",
              f"{r['dsp_exact']} -> {r['dsp_approx']}", f"{r['carry_exact']} -> {r['carry_approx']}",
              f"{r['bram_exact']} -> {r['bram_approx']}"] for r in rows]

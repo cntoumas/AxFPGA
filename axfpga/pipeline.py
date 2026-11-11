@@ -598,7 +598,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
                     rec["_app"]["name"], fmt(rec["_app"]["value"], 3), formal_ctrl, formal_wce)
         return {"name": rec["candidate"] + (f" [{rec['variant']}]" if rec["variant"] in variants else ""),
                 "res": rec["_res"], "errs": e, "app": rec["_app"], "formal_ctrl": formal_ctrl, "formal_wce": formal_wce,
-                "quality": rec["_quality"], "sim_out": rec.get("_sim_out")}
+                "quality": rec["_quality"], "sim_out": rec.get("_sim_out"), "heldout": rec.get("_heldout"),
+                "heldout_reason": rec.get("_heldout_reason")}
 
     ho_cache: Dict[str, Any] = {}
 
@@ -609,10 +610,15 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         try:
             h = _heldout(evaluator, quality, bench_id, bench["relax_wire"], skip, vectors, exact_sim["outputs"],
                          rec.get("_sim_out"), app_dir / "exact_norm.v", top_v, top_mod, sim_kw, cache=ho_cache, tag=tag)
-        except Exception as exc:                  # cannot be evaluated: do not lose the candidate
+        except Exception as exc:                  # cannot be evaluated: do not lose the candidate, but say so
             logger.warning("Held-out gate for %s failed: %s", rec["candidate"], exc)
+            rec["_heldout_reason"] = f"held-out gate could not be evaluated: {exc}"[:300]
             return []
-        return [] if h is None else list(h["violations"])
+        if h is None:
+            rec["_heldout_reason"] = "evaluator provides no held-out stream"
+            return []
+        rec["_heldout"] = h
+        return list(h["violations"])
 
     # Stage 3a: design-level partial-product pruning of every array multiplier (UB1BPPG cells), before flattening.
     # Binary search over the anti-diagonal depth; with inner jobs the next two possible depths are evaluated
@@ -630,7 +636,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
             cone_estimator=tournament_estimator or FpgaEstimator(family="xc7", device=FPGA_DEVICE,
                                                                  nodsp=getattr(estimator, "nodsp", False)),
             exact_res=exact_res, evaluator=evaluator, sim_kw=sim_kw, skip=skip, inner_jobs=inner_jobs,
-            assess=assess, finalize=finalize, attempts=attempts, approx_cone_v=approx_cone_v, app_vectors=vectors)
+            assess=assess, finalize=finalize, attempts=attempts, approx_cone_v=approx_cone_v, app_vectors=vectors,
+            heldout_gate=heldout_violations)
     if ppgs and not meta_mode:
         ppg_dir = bench_work / "ppg"
         ppg_dir.mkdir(parents=True, exist_ok=True)
@@ -863,8 +870,8 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
     heldout_reason: Optional[str] = None
     if fell_back:
         heldout_reason = "exact design kept; nothing to evaluate"
-    elif meta_mode:
-        heldout_reason = "not evaluated (design-space exploration mode)"
+    elif accepted is not None and (accepted.get("heldout") is not None or accepted.get("heldout_reason")):
+        heldout, heldout_reason = accepted.get("heldout"), accepted.get("heldout_reason")   # from the acceptance gate
     elif not hasattr(evaluator, "build_heldout"):
         heldout_reason = "evaluator provides no held-out stream"
     else:
@@ -911,6 +918,10 @@ def run_design(spec: Union[DesignSpec, Dict[str, Any]], estimator: FpgaEstimator
         "method": method,
         "fell_back": fell_back,
         "fallback_reason": fallback_reason,
+        # Accepted design with zero error on the application and the held-out stream: an exact rewrite (e.g. logic the
+        # synthesizer keeps although no output reads it), not an approximation; reported apart from the approximations.
+        "exact_rewrite": bool(not fell_back and errs["wce"] == 0 and heldout is not None
+                              and (heldout.get("errors") or {}).get("wce") == 0),
         "metric": bench["metric"],
         "bound": bench["bound"],
         "exact": eu,
@@ -948,10 +959,13 @@ NO_PROOF = "N/A (design-space exploration: no proofs run)"
 
 def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, annotated_files, top_mod, cone_v, shell_v,
                    cone_meta, has_safe_cone, quality, estimator, cone_estimator, exact_res, evaluator, sim_kw, skip,
-                   inner_jobs, assess, finalize, attempts, approx_cone_v, app_vectors=None):
+                   inner_jobs, assess, finalize, attempts, approx_cone_v, app_vectors=None, heldout_gate=None):
     """Design-space exploration of C_safe, one search per technique, then the synthesized check of each technique's
     best points (full synthesis, control sanity simulation, application stream and metric). Winner: lowest cost among
-    the techniques whose design passed. If none passed: one re-search with the error limits halved, then exact."""
+    the techniques whose design passed. If none passed: one re-search with the error limits halved, then exact.
+    A design that passes on the application stream must also pass on the held-out stream (``heldout_gate``); the search
+    and the application-stream checks only ever see the tuning stream, so a point tuned to it (e.g. a zero-error saving
+    that the stream never exercises) is caught here and the technique's next ranked point is tried."""
     ex_dir = bench_work / "explore"
     algorithm = algorithm_from_env()
     only = techniques_from_env()
@@ -1029,6 +1043,11 @@ def _explore_stage(*, bench, bench_work, exact_top_v, exact_code, ppgs, tr, anno
                     rec.update(technique=s["technique"], search_cost=row["cost"], genome=row["genome"],
                                _paths=(top_a, map_v, map_j, cone_a))
                     attempts.append(rec)
+                    if rec.get("outcome") == "passed checks" and heldout_gate is not None:
+                        viol = heldout_gate(rec, top_a, f"heldout_x_{tag}_{s['technique']}_{i}_{variant}")
+                        if viol:
+                            rec.update(outcome="rejected", reason="held-out stream: " + "; ".join(viol))
+                            logger.info("  %s [%s]: rejected on the held-out stream: %s", label, variant, "; ".join(viol))
                     if rec.get("outcome") == "passed checks":
                         res.update(passed=True, rec=rec)
                         break
@@ -1161,8 +1180,10 @@ def _heldout(evaluator: Any, quality: QualitySpec, bench_id: str, wire: str, ski
     ``cache`` keeps the held-out stimulus and the exact outputs across calls (the gate evaluates several candidates);
     ``tag`` keeps the file names of different candidates apart."""
     cache = cache if cache is not None else {}
-    if "built" not in cache:
-        cache["built"] = evaluator.build_heldout(bench_id)
+    lock = cache.setdefault("_lock", threading.Lock())      # the explore check gates techniques in parallel threads
+    with lock:
+        if "built" not in cache:
+            cache["built"] = evaluator.build_heldout(bench_id)
     built = cache["built"]
     if built is None:
         return None
@@ -1170,8 +1191,9 @@ def _heldout(evaluator: Any, quality: QualitySpec, bench_id: str, wire: str, ski
     if hv == tuning_vectors:                       # same stream (e.g. an exhaustive table): reuse the tuning outputs
         h_exact, h_approx = exact_out, approx_out
     else:
-        if "exact" not in cache:
-            cache["exact"] = run_vector_sim([exact_norm], vectors=hv, tag="heldout_exact", **sim_kw)["outputs"]
+        with lock:
+            if "exact" not in cache:
+                cache["exact"] = run_vector_sim([exact_norm], vectors=hv, tag="heldout_exact", **sim_kw)["outputs"]
         h_exact = cache["exact"]
         norm = _normalize_rtl(approx_top, top_mod, Path(sim_kw["work_dir"]) / f"{tag}_approx_norm.v")
         h_approx = run_vector_sim([norm], vectors=hv, tag=f"{tag}_approx", **sim_kw)["outputs"]
