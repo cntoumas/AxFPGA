@@ -17,3 +17,13 @@ tmp/
 *.log
 a.out
 
+
+# run outputs and local material
+reports/
+reports_cluster_*/
+data/explore_cones/
+docs/phases/
+scripts/cluster/
+.agent/
+.agents/
+.ua/
