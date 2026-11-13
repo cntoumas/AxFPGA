@@ -72,7 +72,14 @@ axfpga -i benchmarks/mac/mac.v -o build/mac_run
 
 # benchmark suite (AxBench and in-house designs) for the Zybo Z7-10 (xc7z010)
 scripts/run_axbench_zybo.sh
+
+# Vivado check of a suite run: exact and approximate netlists, placed and routed the same way
+python scripts/vivado_edif.py --run-build build/<run> --run-results reports/results.json --out reports/vivado_edif
 ```
+
+`vivado_edif.py` writes both Yosys netlists as EDIF and runs `link_design`, `place_design`,
+`phys_opt_design` and `route_design` (no Vivado synthesis) with a 10 ns clock. Power comes from the SAIF
+of a post-route timing simulation on the application stimulus.
 
 Settings are read from environment variables (`axfpga/config.py`): `AXFPGA_AXBENCH_ROOT` (AxBench
 checkout), `AXFPGA_YOSYS` (Yosys command), `AXFPGA_VIVADO` (Vivado executable, for comparison runs).
@@ -90,7 +97,8 @@ In progress:
 
 Planned: Vivado implementation inside the flow, and a single command for the whole run.
 
-Cost and power numbers come from Yosys synthesis and are estimates until checked with Vivado.
+Cost and power numbers of the flow come from Yosys synthesis; `scripts/vivado_edif.py` checks them
+with Vivado.
 
 ## Acknowledgement
 

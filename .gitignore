@@ -21,6 +21,7 @@ a.out
 # run outputs and local material
 reports/
 reports_cluster_*/
+reports_local_*/
 data/explore_cones/
 docs/phases/
 scripts/cluster/
